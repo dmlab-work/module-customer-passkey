@@ -12,6 +12,7 @@ use DmLab\CustomerPasskey\Model\CredentialRepository;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
 use Magento\Framework\Stdlib\DateTime\DateTime;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
@@ -194,6 +195,55 @@ class CredentialSourceRepositoryTest extends TestCase
         $source = $this->repository->findOneByCredentialId('c');
 
         self::assertSame(self::NIL_AAGUID, $source->aaguid->toRfc4122());
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function nonRfc4122VariantAaguids(): array
+    {
+        return [
+            'Chrome virtual authenticator' => ['01020304-0506-0708-0102-030405060708'],
+            'Google Password Manager' => ['ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4'],
+        ];
+    }
+
+    #[DataProvider('nonRfc4122VariantAaguids')]
+    public function testNonRfc4122VariantAaguidSurvivesLoginRoundTrip(string $aaguid): void
+    {
+        $credential = new Credential(
+            entityId: 5,
+            customerId: 1,
+            credentialId: $this->encodeBase64Url('c'),
+            publicKey: base64_encode('k'),
+            aaguid: $aaguid
+        );
+        $this->credentials->method('findByCredentialId')->willReturn($credential);
+        $saved = null;
+        $this->credentials->expects(self::once())->method('save')
+            ->willReturnCallback(function (Credential $c) use (&$saved): Credential {
+                $saved = $c;
+                return $c;
+            });
+
+        $source = $this->repository->findOneByCredentialId('c');
+        self::assertSame($aaguid, $source->aaguid->toRfc4122());
+
+        $this->repository->saveCredentialSource($source);
+        self::assertSame($aaguid, $saved->aaguid);
+    }
+
+    public function testUppercaseStoredAaguidIsAccepted(): void
+    {
+        $credential = new Credential(
+            customerId: 1,
+            credentialId: $this->encodeBase64Url('c'),
+            publicKey: base64_encode('k'),
+            aaguid: strtoupper(self::AAGUID)
+        );
+        $this->credentials->method('findByCredentialId')->willReturn($credential);
+
+        self::assertSame(self::AAGUID, $this->repository->findOneByCredentialId('c')->aaguid->toRfc4122());
     }
 
     public function testSaveCredentialSourceStampsLastUsedOnNewRow(): void

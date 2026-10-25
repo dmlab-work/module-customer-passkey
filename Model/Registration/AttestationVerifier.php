@@ -16,6 +16,8 @@ use Webauthn\AuthenticatorAttestationResponseValidator;
 use Webauthn\AuthenticatorSelectionCriteria;
 use Webauthn\CeremonyStep\CeremonyStepManagerFactory;
 use Webauthn\CredentialRecord;
+use Webauthn\Exception\AuthenticatorResponseVerificationException;
+use Webauthn\Exception\WebauthnException;
 use Webauthn\PublicKeyCredentialCreationOptions;
 use Webauthn\PublicKeyCredentialParameters;
 use Webauthn\PublicKeyCredentialUserEntity;
@@ -29,7 +31,8 @@ use Webauthn\PublicKeyCredentialUserEntity;
  * the logged-in customer (the relying party is Magento, so the customer is the
  * WebAuthn user). The library's creation ceremony then enforces challenge match,
  * origin/RP-ID binding, user presence/verification and a known attestation format;
- * any failure throws and the controller reports it generically.
+ * any rejection of the client's response throws a {@see WebauthnException}, which
+ * the controller reports generically.
  *
  * The `none` attestation format only is accepted — this module requests no
  * attestation conveyance (privacy-preserving, matching the options factory), so
@@ -63,7 +66,7 @@ class AttestationVerifier
      * @param string $challenge the raw challenge consumed from the session
      * @param array<string,mixed> $credential decoded browser credential JSON
      * @param int|string|null $storeId
-     * @throws \Throwable when the attestation is invalid (bad/expired challenge,
+     * @throws WebauthnException when the attestation is invalid (bad/expired challenge,
      *                    origin/RP-ID mismatch, wrong response type, …)
      */
     public function verify(
@@ -92,10 +95,19 @@ class AttestationVerifier
         $publicKeyCredential = $this->credentialLoader->load($credential);
         $response = $publicKeyCredential->response;
         if (!$response instanceof AuthenticatorAttestationResponse) {
-            throw new \InvalidArgumentException('The credential is not a registration (attestation) response.');
+            throw AuthenticatorResponseVerificationException::create(
+                'The credential is not a registration (attestation) response.'
+            );
         }
 
-        return $this->validator()->check($response, $options, (string)$rp->id);
+        try {
+            return $this->validator()->check($response, $options, (string)$rp->id);
+        } catch (WebauthnException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            // Library decoders throw plain exceptions on malformed client data.
+            throw AuthenticatorResponseVerificationException::create('The attestation could not be verified.', $e);
+        }
     }
 
     /**

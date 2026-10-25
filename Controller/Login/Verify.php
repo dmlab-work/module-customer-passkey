@@ -22,12 +22,15 @@ use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\Result\JsonFactory;
-use Magento\Framework\Exception\LocalizedException;
+use Magento\Framework\Exception\AuthenticationException;
+use Magento\Framework\Exception\EmailNotConfirmedException;
+use Magento\Framework\Exception\State\UserLockedException;
 use Magento\Framework\Stdlib\Cookie\CookieMetadataFactory;
 use Magento\Framework\Stdlib\CookieManagerInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use Psr\Log\LoggerInterface;
 use Webauthn\CredentialRecord;
+use Webauthn\Exception\WebauthnException;
 
 /**
  * Completes a passwordless storefront login: validates the assertion the
@@ -128,6 +131,11 @@ class Verify implements HttpPostActionInterface
             $source = $this->assertionVerifier->verify($pending['challenge'], $credential, $pending['scope']);
             $this->credentialSourceRepository->saveCredentialSource($source);
             $this->login($source);
+        } catch (WebauthnException | AuthenticationException $e) {
+            // Rejected credential or ineligible account: routine user-side failure, not a server fault.
+            $this->logger->warning('DmLab_CustomerPasskey: passkey sign-in rejected.', ['exception' => $e]);
+
+            return $this->error($result, 422, __('Could not sign you in with that passkey. Please try again.'));
         } catch (\Throwable $e) {
             $this->logger->critical($e);
 
@@ -145,7 +153,7 @@ class Verify implements HttpPostActionInterface
      *
      * @param CredentialRecord $source
      * @throws \Magento\Framework\Exception\NoSuchEntityException when the owner is gone
-     * @throws LocalizedException when the account is not eligible to sign in
+     * @throws AuthenticationException when the account is not eligible to sign in
      */
     private function login(CredentialRecord $source): void
     {
@@ -179,7 +187,7 @@ class Verify implements HttpPostActionInterface
      * password authentication applies.
      *
      * @param CustomerInterface $customer
-     * @throws LocalizedException
+     * @throws AuthenticationException
      */
     private function assertEligible(CustomerInterface $customer): void
     {
@@ -187,12 +195,12 @@ class Verify implements HttpPostActionInterface
         if ($this->shareConfig->isWebsiteScope()
             && $customerWebsiteId !== (int)$this->storeManager->getStore()->getWebsiteId()
         ) {
-            throw new LocalizedException(__('This passkey cannot be used to sign in here.'));
+            throw new AuthenticationException(__('This passkey cannot be used to sign in here.'));
         }
 
         $customerId = (int)$customer->getId();
         if ($this->authentication->isLocked($customerId)) {
-            throw new LocalizedException(__('This account is locked.'));
+            throw new UserLockedException(__('This account is locked.'));
         }
 
         if ($customer->getConfirmation()
@@ -207,7 +215,7 @@ class Verify implements HttpPostActionInterface
                     (string)$customer->getEmail()
                 ))
         ) {
-            throw new LocalizedException(__('This account is not confirmed.'));
+            throw new EmailNotConfirmedException(__('This account is not confirmed.'));
         }
     }
 

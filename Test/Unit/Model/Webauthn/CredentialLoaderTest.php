@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Webauthn\AuthenticatorAssertionResponse;
 use Webauthn\AuthenticatorAttestationResponse;
+use Webauthn\Exception\InvalidDataException;
 
 class CredentialLoaderTest extends TestCase
 {
@@ -64,6 +65,19 @@ class CredentialLoaderTest extends TestCase
         yield 'non-array response' => [static fn(array $p): array => ['response' => 'x'] + $p];
         yield 'id and rawId differ' => [static fn(array $p): array => ['id' => 'b3RoZXI'] + $p];
         yield 'unknown response kind' => [static fn(array $p): array => ['response' => ['clientDataJSON' => '']] + $p];
+        // Lower-level decoders throw RangeException / JsonException / InvalidArgumentException on these.
+        yield 'non-base64 rawId' => [static fn(array $p): array => ['id' => '%%%', 'rawId' => '%%%'] + $p];
+        yield 'non-JSON clientDataJSON' => [static function (array $p): array {
+            $p['response']['clientDataJSON'] = rtrim(strtr(base64_encode('{nope'), '+/', '-_'), '=');
+            return $p;
+        }];
+        yield 'non-CBOR attestationObject' => [static function (array $p): array {
+            $p['response'] = [
+                'clientDataJSON' => $p['response']['clientDataJSON'],
+                'attestationObject' => rtrim(strtr(base64_encode("\xff\x00garbage"), '+/', '-_'), '='),
+            ];
+            return $p;
+        }];
     }
 
     /**
@@ -72,7 +86,8 @@ class CredentialLoaderTest extends TestCase
     #[DataProvider('malformedPayloads')]
     public function testRejectsMalformedPayload(callable $mutate): void
     {
-        $this->expectException(\Throwable::class);
+        // Always the library's data exception, so callers can log it as a rejected request.
+        $this->expectException(InvalidDataException::class);
 
         $this->loader->load($mutate($this->assertionPayload()));
     }

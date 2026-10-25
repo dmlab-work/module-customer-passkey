@@ -26,6 +26,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
 use Webauthn\CredentialRecord;
+use Webauthn\Exception\AuthenticatorResponseVerificationException;
 use Webauthn\PublicKeyCredentialDescriptor;
 use Webauthn\TrustPath\EmptyTrustPath;
 
@@ -246,14 +247,29 @@ class VerifyTest extends TestCase
         $this->params('{"id":"abc","type":"public-key"}');
         $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
         $this->verifier->method('verify')
-            ->willThrowException(new \RuntimeException('rpId mismatch.'));
+            ->willThrowException(AuthenticatorResponseVerificationException::create('rpId mismatch.'));
 
         $this->sourceRepository->expects(self::never())->method('saveNewCredential');
         $this->notifier->expects(self::never())->method('notifyAdded');
-        $this->logger->expects(self::once())->method('critical');
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
         $this->json->expects(self::once())->method('setData')
             ->with(self::callback(static fn(array $d): bool => $d['success'] === false));
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testServerFaultDuringVerificationIsCritical(): void
+    {
+        $this->loginAs();
+        $this->params('{"id":"abc","type":"public-key"}');
+        $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
+        $this->verifier->method('verify')->willThrowException(new \RuntimeException('Database is gone.'));
+
+        $this->logger->expects(self::once())->method('critical');
+        $this->logger->expects(self::never())->method('warning');
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
 
         self::assertSame($this->json, $this->controller->execute());
     }

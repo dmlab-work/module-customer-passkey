@@ -8,7 +8,6 @@ declare(strict_types=1);
 namespace DmLab\CustomerPasskey\Controller\Manage;
 
 use DmLab\CustomerPasskey\Model\CredentialRepository;
-use Magento\Customer\Controller\AccountInterface;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\RequestInterface;
@@ -22,10 +21,9 @@ use Magento\Framework\Controller\Result\JsonFactory;
  * ({@see CredentialRepository::findOwnedByCustomer()}), so a forged `entity_id`
  * pointing at another shopper's passkey resolves to nothing and is refused — a
  * customer can only manage their own credentials. A blank label clears it (the
- * list falls back to a generic name). Implements {@see AccountInterface} for the
- * customer auth gate; the session check here is defence in depth.
+ * list falls back to a generic name). Guests get a 403 JSON error.
  */
-class Rename implements HttpPostActionInterface, AccountInterface
+class Rename implements HttpPostActionInterface
 {
     /**
      * @param Session $customerSession

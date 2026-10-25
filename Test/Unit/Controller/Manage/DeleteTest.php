@@ -12,6 +12,7 @@ use DmLab\CustomerPasskey\Model\Credential;
 use DmLab\CustomerPasskey\Model\CredentialRepository;
 use DmLab\CustomerPasskey\Model\Notification\PasskeyNotifier;
 use Magento\Customer\Api\Data\CustomerInterface;
+use Magento\Customer\Controller\AccountInterface;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\Result\Json;
@@ -87,6 +88,8 @@ class DeleteTest extends TestCase
         $this->notifier->expects(self::never())->method('notifyRemoved');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(403);
 
+        // Core's AccountInterface gate would return null here instead of this JSON 403.
+        self::assertNotInstanceOf(AccountInterface::class, $this->controller);
         self::assertSame($this->json, $this->controller->execute());
     }
 

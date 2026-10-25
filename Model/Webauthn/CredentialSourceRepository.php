@@ -36,6 +36,9 @@ class CredentialSourceRepository
     /** AAGUID emitted by authenticators that withhold one; stored as null. */
     private const NIL_AAGUID = '00000000-0000-0000-0000-000000000000';
 
+    /** Any 16-byte value in 8-4-4-4-12 hex form; AAGUIDs need not carry the RFC 4122 variant. */
+    private const AAGUID_PATTERN = '/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/Di';
+
     /**
      * @param CredentialRepository $credentials
      * @param DateTime $dateTime
@@ -122,7 +125,8 @@ class CredentialSourceRepository
      */
     private function toSource(Credential $credential): CredentialRecord
     {
-        $aaguid = $credential->aaguid !== null && Uuid::isValid($credential->aaguid)
+        // Not Uuid::isValid(): it rejects non-RFC-4122-variant AAGUIDs, which would then be saved back as null.
+        $aaguid = $credential->aaguid !== null && preg_match(self::AAGUID_PATTERN, $credential->aaguid) === 1
             ? Uuid::fromString($credential->aaguid)
             : Uuid::fromString(self::NIL_AAGUID);
 

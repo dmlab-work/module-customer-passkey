@@ -10,6 +10,7 @@ namespace DmLab\CustomerPasskey\Test\Unit\Controller\Manage;
 use DmLab\CustomerPasskey\Controller\Manage\Rename;
 use DmLab\CustomerPasskey\Model\Credential;
 use DmLab\CustomerPasskey\Model\CredentialRepository;
+use Magento\Customer\Controller\AccountInterface;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\Result\Json;
@@ -74,6 +75,8 @@ class RenameTest extends TestCase
         $this->credentials->expects(self::never())->method('save');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(403);
 
+        // Core's AccountInterface gate would return null here instead of this JSON 403.
+        self::assertNotInstanceOf(AccountInterface::class, $this->controller);
         self::assertSame($this->json, $this->controller->execute());
     }
 

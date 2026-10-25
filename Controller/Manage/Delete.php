@@ -9,7 +9,6 @@ namespace DmLab\CustomerPasskey\Controller\Manage;
 
 use DmLab\CustomerPasskey\Model\CredentialRepository;
 use DmLab\CustomerPasskey\Model\Notification\PasskeyNotifier;
-use Magento\Customer\Controller\AccountInterface;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\RequestInterface;
@@ -22,10 +21,9 @@ use Magento\Framework\Controller\Result\JsonFactory;
  * The target is resolved only within the customer's own credential set
  * ({@see CredentialRepository::findOwnedByCustomer()}), so a forged `entity_id`
  * pointing at another shopper's passkey resolves to nothing and is refused — a
- * customer can only remove their own credentials. Implements {@see AccountInterface}
- * for the customer auth gate; the session check here is defence in depth.
+ * customer can only remove their own credentials. Guests get a 403 JSON error.
  */
-class Delete implements HttpPostActionInterface, AccountInterface
+class Delete implements HttpPostActionInterface
 {
     /**
      * @param Session $customerSession

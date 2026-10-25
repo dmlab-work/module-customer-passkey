@@ -10,6 +10,7 @@ namespace DmLab\CustomerPasskey\Model\Webauthn;
 use Webauthn\AttestationStatement\AttestationStatementSupportManager;
 use Webauthn\Denormalizer\WebauthnSerializerFactory;
 use Webauthn\Exception\InvalidDataException;
+use Webauthn\Exception\WebauthnException;
 use Webauthn\PublicKeyCredential;
 use Webauthn\PublicKeyCredentialDescriptor;
 
@@ -20,7 +21,9 @@ use Webauthn\PublicKeyCredentialDescriptor;
  * Only the `none` attestation statement support is registered (the manager's
  * default), matching the attestation conveyance this module requests. The
  * top-level shape is checked first: the library denormalizer neither rejects a
- * missing member nor a non-`public-key` type.
+ * missing member nor a non-`public-key` type. Every failure surfaces as
+ * {@see InvalidDataException}: the payload is client input, so callers can treat
+ * it as a rejected request rather than a server fault.
  */
 class CredentialLoader
 {
@@ -28,7 +31,7 @@ class CredentialLoader
      * Load the credential, throwing on any malformed input.
      *
      * @param array<string,mixed> $credential
-     * @throws \Throwable when the payload is not a valid public-key credential
+     * @throws InvalidDataException when the payload is not a valid public-key credential
      */
     public function load(array $credential): PublicKeyCredential
     {
@@ -44,9 +47,16 @@ class CredentialLoader
             throw InvalidDataException::create($credential, 'The parameter "response" is invalid.');
         }
 
-        $loaded = (new WebauthnSerializerFactory(AttestationStatementSupportManager::create()))
-            ->create()
-            ->deserialize(json_encode($credential, JSON_THROW_ON_ERROR), PublicKeyCredential::class, 'json');
+        try {
+            $loaded = (new WebauthnSerializerFactory(AttestationStatementSupportManager::create()))
+                ->create()
+                ->deserialize(json_encode($credential, JSON_THROW_ON_ERROR), PublicKeyCredential::class, 'json');
+        } catch (WebauthnException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            // Decoders below the serializer throw generic Range/Json/InvalidArgument exceptions on garbage.
+            throw InvalidDataException::create($credential, 'The credential could not be loaded.', $e);
+        }
         if (!$loaded instanceof PublicKeyCredential) {
             throw InvalidDataException::create($credential, 'The credential could not be loaded.');
         }

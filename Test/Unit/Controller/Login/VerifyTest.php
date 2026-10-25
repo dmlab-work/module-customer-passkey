@@ -35,6 +35,8 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
 use Webauthn\CredentialRecord;
+use Webauthn\Exception\AuthenticatorResponseVerificationException;
+use Webauthn\Exception\CounterException;
 use Webauthn\PublicKeyCredentialDescriptor;
 use Webauthn\TrustPath\EmptyTrustPath;
 
@@ -266,11 +268,12 @@ class VerifyTest extends TestCase
         $this->payload();
         $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => null]);
         $this->verifier->method('verify')
-            ->willThrowException(new \RuntimeException('Invalid signature.'));
+            ->willThrowException(AuthenticatorResponseVerificationException::create('Invalid signature.'));
 
         $this->sourceRepository->expects(self::never())->method('saveCredentialSource');
         $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
-        $this->logger->expects(self::once())->method('critical');
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
         $this->json->expects(self::once())->method('setData')
             ->with(self::callback(static fn(array $d): bool => $d['success'] === false));
@@ -284,10 +287,15 @@ class VerifyTest extends TestCase
         $this->payload();
         $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => null]);
         $this->verifier->method('verify')
-            ->willThrowException(new \InvalidArgumentException('The credential is not registered.'));
+            ->willThrowException(
+                AuthenticatorResponseVerificationException::create('The credential is not registered.')
+            );
 
         $this->sourceRepository->expects(self::never())->method('saveCredentialSource');
         $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
+        // An unknown or revoked passkey is user input, not a server fault.
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
 
         self::assertSame($this->json, $this->controller->execute());
@@ -301,11 +309,26 @@ class VerifyTest extends TestCase
         // The library's counter step throws when the authenticator counter did not
         // advance — a cloned credential.
         $this->verifier->method('verify')
-            ->willThrowException(new \RuntimeException('Invalid counter.'));
+            ->willThrowException(CounterException::create(7, 5, 'Invalid counter.'));
 
         $this->sourceRepository->expects(self::never())->method('saveCredentialSource');
         $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning');
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testServerFaultDuringVerificationIsCritical(): void
+    {
+        $this->enabled();
+        $this->payload();
+        $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => null]);
+        $this->verifier->method('verify')->willThrowException(new \RuntimeException('Database is gone.'));
+
         $this->logger->expects(self::once())->method('critical');
+        $this->logger->expects(self::never())->method('warning');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
 
         self::assertSame($this->json, $this->controller->execute());
@@ -383,7 +406,8 @@ class VerifyTest extends TestCase
         $this->customerRepository->method('getById')->with(42)->willReturn($this->eligibleCustomer(2));
 
         $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
-        $this->logger->expects(self::once())->method('critical');
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
 
         self::assertSame($this->json, $this->controller->execute());
@@ -422,6 +446,8 @@ class VerifyTest extends TestCase
         $controller = $this->controllerWithEligibility();
 
         $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
+        $this->logger->expects(self::never())->method('critical');
+        $this->logger->expects(self::once())->method('warning');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
 
         self::assertSame($this->json, $controller->execute());

@@ -20,6 +20,7 @@ use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\Result\JsonFactory;
 use Psr\Log\LoggerInterface;
+use Webauthn\Exception\WebauthnException;
 
 /**
  * Completes passkey registration: validates the attestation the authenticator
@@ -114,6 +115,10 @@ class Verify implements HttpPostActionInterface
                 $pending['challenge'],
                 $credential
             );
+        } catch (WebauthnException $e) {
+            $this->logger->warning('DmLab_CustomerPasskey: passkey registration rejected.', ['exception' => $e]);
+
+            return $this->error($result, 422, __('Could not verify your passkey. Please try again.'));
         } catch (\Throwable $e) {
             $this->logger->critical($e);
 
