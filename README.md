@@ -11,9 +11,9 @@ external IdP, no OIDC, and no shared SSO core. The module is standalone and coex
 
 ## Requirements
 
-- Magento 2.4.9 (`magento/framework >= 103.0`), PHP 8.3–8.5
+- Magento 2.4.x (tested on 2.4.9), PHP 8.3–8.5
 - `web-auth/webauthn-lib ^5.3.5`, `web-auth/cose-lib ^4.8`, `symfony/serializer`, `symfony/uid` (`^6.4|^7.0|^8.0`)
-- Magento modules Customer, Store, Config, Backend, Ui, Email (bundled with 2.4.9)
+- Magento modules Customer, Store, Config, Backend, Ui, Email (bundled with Magento)
 - HTTPS on the storefront (WebAuthn requires a secure context)
 
 ## Install
