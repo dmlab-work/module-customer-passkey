@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.1] — 2026-10-25
+
+### Fixed
+- Guests opening My Account → Passkeys got HTTP 500 instead of the login redirect.
+- Non-RFC 4122 AAGUIDs (Chrome, Google Password Manager) were wiped on first passkey sign-in.
+
+### Changed
+- Rejected passkeys are logged as warnings, not critical errors.
+- Tested on Magento 2.4.9 and PHP 8.5.
+
 ## [0.2.0] — 2026-10-18
 
 ### Security
