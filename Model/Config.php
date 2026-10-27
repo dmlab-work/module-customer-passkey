@@ -17,7 +17,7 @@ use Magento\Store\Model\StoreManagerInterface;
  *
  * Wraps {@see ScopeConfigInterface} so the rest of the module never touches raw
  * config paths, and derives the WebAuthn relying-party id from the store base
- * URL (Magento is the relying party — there is no admin field for it). Reads are
+ * URL (Magento is the relying party) unless a parent domain is configured. Reads are
  * store-scoped: passkey login can be enabled/tuned per store view.
  */
 class Config
@@ -27,6 +27,9 @@ class Config
 
     /** Human-readable relying-party name shown by the authenticator. */
     public const XML_PATH_RP_DISPLAY_NAME = 'dmlab_customer_passkey/general/rp_display_name';
+
+    /** Optional RP ID override: the store host or a parent domain of it. */
+    public const XML_PATH_RP_ID = 'dmlab_customer_passkey/general/rp_id';
 
     /** WebAuthn user-verification requirement (required/preferred/discouraged). */
     public const XML_PATH_USER_VERIFICATION = 'dmlab_customer_passkey/general/user_verification';
@@ -266,14 +269,25 @@ class Config
      * scheme, port and path (e.g. `https://shop.example.com/` → `shop.example.com`).
      * Empty string when the base URL has no resolvable host.
      *
+     * A configured override is used only when it is that host or a parent domain
+     * of it (e.g. `example.com` for `shop.example.com`), as browsers require;
+     * anything else is ignored rather than breaking every ceremony.
+     *
      * @param int|string|null $storeId
      */
     public function getRpId($storeId = null): string
     {
         $baseUrl = $this->storeManager->getStore($storeId)->getBaseUrl();
         $host = parse_url($baseUrl, PHP_URL_HOST);
+        if (!is_string($host)) {
+            return '';
+        }
 
-        return is_string($host) ? $host : '';
+        $host = strtolower($host);
+        $configured = strtolower(trim((string)$this->readNonEmptyString(self::XML_PATH_RP_ID, $storeId), '.'));
+        $isParent = str_contains($configured, '.') && str_ends_with($host, '.' . $configured);
+
+        return $configured === $host || $isParent ? $configured : $host;
     }
 
     /**

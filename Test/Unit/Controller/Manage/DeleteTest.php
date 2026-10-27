@@ -11,6 +11,7 @@ use DmLab\CustomerPasskey\Controller\Manage\Delete;
 use DmLab\CustomerPasskey\Model\Credential;
 use DmLab\CustomerPasskey\Model\CredentialRepository;
 use DmLab\CustomerPasskey\Model\Notification\PasskeyNotifier;
+use DmLab\CustomerPasskey\Model\Security\RecentAuthentication;
 use Magento\Customer\Api\Data\CustomerInterface;
 use Magento\Customer\Controller\AccountInterface;
 use Magento\Customer\Model\Session;
@@ -39,6 +40,12 @@ class DeleteTest extends TestCase
     /** @var PasskeyNotifier&MockObject */
     private $notifier;
 
+    /** @var RecentAuthentication&MockObject */
+    private $recentAuthentication;
+
+    /** @var bool whether the customer proved who they are within the re-authentication window */
+    private bool $fresh = true;
+
     /** @var Delete */
     private Delete $controller;
 
@@ -56,13 +63,16 @@ class DeleteTest extends TestCase
         $jsonFactory->method('create')->willReturn($this->json);
 
         $this->notifier = $this->createMock(PasskeyNotifier::class);
+        $this->recentAuthentication = $this->createMock(RecentAuthentication::class);
+        $this->recentAuthentication->method('isFresh')->willReturnCallback(fn(): bool => $this->fresh);
 
         $this->controller = new Delete(
             $this->session,
             $this->request,
             $this->credentials,
             $jsonFactory,
-            $this->notifier
+            $this->notifier,
+            $this->recentAuthentication
         );
     }
 
@@ -72,11 +82,59 @@ class DeleteTest extends TestCase
         $this->session->method('getCustomerId')->willReturn($customerId);
     }
 
-    private function withEntityId(int $entityId): void
+    private function withEntityId(int $entityId, string $password = ''): void
     {
         $this->request->method('getParam')->willReturnMap([
             ['entity_id', 0, (string)$entityId],
+            ['password', '', $password],
         ]);
+    }
+
+    public function testStaleSessionWithoutPasswordAsksToReauthenticate(): void
+    {
+        $this->loginAs();
+        $this->withEntityId(7);
+        $this->fresh = false;
+
+        $this->recentAuthentication->expects(self::never())->method('confirmPassword');
+        $this->credentials->expects(self::never())->method('delete');
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(401);
+        $this->json->expects(self::once())->method('setData')
+            ->with(self::callback(static fn(array $d): bool => $d['success'] === false && $d['reauth'] === true));
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testStaleSessionWithWrongPasswordIsRefused(): void
+    {
+        $this->loginAs();
+        $this->withEntityId(7, 'wrong');
+        $this->fresh = false;
+        $this->recentAuthentication->expects(self::once())->method('confirmPassword')
+            ->with(42, 'wrong')->willReturn(false);
+
+        $this->recentAuthentication->expects(self::never())->method('markNow');
+        $this->credentials->expects(self::never())->method('delete');
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(401);
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testStaleSessionWithCorrectPasswordDeletes(): void
+    {
+        $this->loginAs();
+        $this->withEntityId(7, 'secret');
+        $this->fresh = false;
+        $credential = new Credential(entityId: 7, customerId: 42, credentialId: 'a');
+        $this->credentials->method('findOwnedByCustomer')->with(42, 7)->willReturn($credential);
+        $this->session->method('getCustomerData')->willReturn($this->createStub(CustomerInterface::class));
+        $this->recentAuthentication->method('confirmPassword')->with(42, 'secret')->willReturn(true);
+
+        $this->recentAuthentication->expects(self::once())->method('markNow');
+        $this->credentials->expects(self::once())->method('delete')->with($credential);
+        $this->json->expects(self::never())->method('setHttpResponseCode');
+
+        self::assertSame($this->json, $this->controller->execute());
     }
 
     public function testRefusesAnonymousRequest(): void

@@ -121,4 +121,17 @@ class RenameTest extends TestCase
 
         self::assertSame($this->json, $this->controller->execute());
     }
+
+    public function testLongLabelIsCutToColumnWidth(): void
+    {
+        $this->loginAs();
+        $this->params(7, str_repeat('ж', 300));
+        $credential = new Credential(entityId: 7, customerId: 42, credentialId: 'a');
+        $this->credentials->method('findOwnedByCustomer')->willReturn($credential);
+
+        $this->credentials->expects(self::once())->method('save')
+            ->with(self::callback(static fn(Credential $c): bool => $c->label === str_repeat('ж', 255)));
+
+        $this->controller->execute();
+    }
 }

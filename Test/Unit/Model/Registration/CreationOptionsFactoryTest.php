@@ -12,6 +12,7 @@ use DmLab\CustomerPasskey\Model\Config;
 use DmLab\CustomerPasskey\Model\Registration\CreationOptionsFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
 use DmLab\CustomerPasskey\Model\Webauthn\RelyingPartyEntityFactory;
+use DmLab\CustomerPasskey\Model\Webauthn\UserHandle;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -36,6 +37,9 @@ class CreationOptionsFactoryTest extends TestCase
     /** @var CredentialSourceRepository&MockObject */
     private $sourceRepository;
 
+    /** @var UserHandle&MockObject */
+    private $userHandle;
+
     /** @var CreationOptionsFactory */
     private CreationOptionsFactory $factory;
 
@@ -44,6 +48,8 @@ class CreationOptionsFactoryTest extends TestCase
         $this->config = $this->createMock(Config::class);
         $this->rpFactory = $this->createMock(RelyingPartyEntityFactory::class);
         $this->sourceRepository = $this->createMock(CredentialSourceRepository::class);
+        $this->userHandle = $this->createMock(UserHandle::class);
+        $this->userHandle->method('forCustomer')->willReturnCallback(static fn(int $id): string => 'handle-' . $id);
 
         $this->rpFactory->method('create')
             ->willReturn(PublicKeyCredentialRpEntity::create('', 'acme.test'));
@@ -55,7 +61,8 @@ class CreationOptionsFactoryTest extends TestCase
         $this->factory = new CreationOptionsFactory(
             $this->config,
             $this->rpFactory,
-            $this->sourceRepository
+            $this->sourceRepository,
+            $this->userHandle
         );
     }
 
@@ -76,12 +83,13 @@ class CreationOptionsFactoryTest extends TestCase
 
     public function testBuildsOptionsShapeForCustomer(): void
     {
-        $this->sourceRepository->method('findAllForUserEntity')->willReturn([]);
+        $this->sourceRepository->method('findAllForCustomer')->willReturn([]);
 
         $options = $this->factory->create(42, 'shopper@acme.test', 'Jane Shopper');
 
         self::assertSame('acme.test', $options->rp->id);
-        self::assertSame('42', $options->user->id);
+        // Opaque handle, not the customer id (WebAuthn §14.6.1).
+        self::assertSame('handle-42', $options->user->id);
         self::assertSame('shopper@acme.test', $options->user->name);
         self::assertSame('Jane Shopper', $options->user->displayName);
         self::assertSame(45000, $options->timeout);
@@ -95,12 +103,15 @@ class CreationOptionsFactoryTest extends TestCase
             static fn(PublicKeyCredentialParameters $p): int => $p->alg,
             $options->pubKeyCredParams
         );
-        self::assertSame([Algorithms::COSE_ALGORITHM_ES256, Algorithms::COSE_ALGORITHM_RS256], $algorithms);
+        self::assertSame(
+            [Algorithms::COSE_ALGORITHM_ES256, Algorithms::COSE_ALGORITHM_EDDSA, Algorithms::COSE_ALGORITHM_RS256],
+            $algorithms
+        );
     }
 
     public function testUserVerificationAndAttachmentComeFromConfig(): void
     {
-        $this->sourceRepository->method('findAllForUserEntity')->willReturn([]);
+        $this->sourceRepository->method('findAllForCustomer')->willReturn([]);
 
         $options = $this->factory->create(42, 'shopper@acme.test', 'Jane Shopper');
 
@@ -124,9 +135,9 @@ class CreationOptionsFactoryTest extends TestCase
         $config->method('getUserVerification')->willReturn(Config::USER_VERIFICATION_PREFERRED);
         $config->method('getAuthenticatorAttachment')->willReturn(Config::ATTACHMENT_PLATFORM);
         $config->method('isPasswordlessAllowed')->willReturn(true);
-        $this->sourceRepository->method('findAllForUserEntity')->willReturn([]);
+        $this->sourceRepository->method('findAllForCustomer')->willReturn([]);
 
-        $factory = new CreationOptionsFactory($config, $this->rpFactory, $this->sourceRepository);
+        $factory = new CreationOptionsFactory($config, $this->rpFactory, $this->sourceRepository, $this->userHandle);
         $options = $factory->create(7, 'a@b.test', 'A B');
 
         self::assertSame(
@@ -142,8 +153,8 @@ class CreationOptionsFactoryTest extends TestCase
     public function testExcludeCredentialsPopulatedFromExistingPasskeys(): void
     {
         $this->sourceRepository->expects(self::once())
-            ->method('findAllForUserEntity')
-            ->with(self::callback(static fn($user): bool => $user->id === '42'))
+            ->method('findAllForCustomer')
+            ->with(42)
             ->willReturn([
                 $this->source('raw-id-one', ['internal']),
                 $this->source('raw-id-two', ['hybrid', 'usb']),
@@ -164,7 +175,7 @@ class CreationOptionsFactoryTest extends TestCase
 
     public function testChallengeIsFreshEachCall(): void
     {
-        $this->sourceRepository->method('findAllForUserEntity')->willReturn([]);
+        $this->sourceRepository->method('findAllForCustomer')->willReturn([]);
 
         $first = $this->factory->create(42, 'a@b.test', 'A B')->challenge;
         $second = $this->factory->create(42, 'a@b.test', 'A B')->challenge;

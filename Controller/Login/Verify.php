@@ -38,10 +38,12 @@ use Webauthn\Exception\WebauthnException;
  * the customer session for the credential's owner.
  *
  * A public endpoint (no session exists yet). The one-time challenge is consumed
- * from the session before verification, so a replayed assertion finds none and is
- * rejected. Verification enforces origin/RP-ID binding, the signature against the
- * stored public key, and the sign counter (clone detection); the credential's
- * updated counter is persisted so a subsequent replay of the same assertion is
+ * from the session before anything else, so each challenge gets a single attempt
+ * and a replayed assertion finds none. A rejected assertion for an email-first
+ * request counts toward the native customer lockout of that account.
+ * Verification enforces origin/RP-ID binding, the signature against the stored
+ * public key, and the sign counter (clone detection); the credential's updated
+ * counter is persisted so a subsequent replay of the same assertion is
  * caught. Every failure is logged and reported generically — details, including
  * whether a credential exists, never reach the client.
  */
@@ -117,22 +119,27 @@ class Verify implements HttpPostActionInterface
             return $this->error($result, 429, __('Too many passkey attempts. Please wait and try again.'));
         }
 
-        $credential = $this->decodeCredential();
-        if ($credential === null) {
-            return $this->error($result, 400, __('Invalid passkey payload.'));
-        }
-
         $pending = $this->challengeStorage->consume(ChallengeStorage::CEREMONY_LOGIN);
         if ($pending === null || $pending['challenge'] === '') {
             return $this->error($result, 400, __('Your passkey sign-in expired. Please try again.'));
+        }
+
+        $credential = $this->decodeCredential();
+        if ($credential === null) {
+            return $this->error($result, 400, __('Invalid passkey payload.'));
         }
 
         try {
             $source = $this->assertionVerifier->verify($pending['challenge'], $credential, $pending['scope']);
             $this->credentialSourceRepository->saveCredentialSource($source);
             $this->login($source);
-        } catch (WebauthnException | AuthenticationException $e) {
-            // Rejected credential or ineligible account: routine user-side failure, not a server fault.
+        } catch (WebauthnException $e) {
+            $this->logger->warning('DmLab_CustomerPasskey: passkey sign-in rejected.', ['exception' => $e]);
+            $this->recordFailure($pending['scope']);
+
+            return $this->error($result, 422, __('Could not sign you in with that passkey. Please try again.'));
+        } catch (AuthenticationException $e) {
+            // Ineligible account: routine user-side failure, not a server fault.
             $this->logger->warning('DmLab_CustomerPasskey: passkey sign-in rejected.', ['exception' => $e]);
 
             return $this->error($result, 422, __('Could not sign you in with that passkey. Please try again.'));
@@ -157,10 +164,35 @@ class Verify implements HttpPostActionInterface
      */
     private function login(CredentialRecord $source): void
     {
-        $customer = $this->customerRepository->getById((int)$source->userHandle);
+        $customerId = $this->credentialSourceRepository->findCustomerIdByCredentialId($source->publicKeyCredentialId);
+        if ($customerId === null) {
+            throw new AuthenticationException(__('This passkey is no longer registered.'));
+        }
+
+        $customer = $this->customerRepository->getById($customerId);
         $this->assertEligible($customer);
         $this->customerSession->setCustomerDataAsLoggedIn($customer);
         $this->invalidatePrivateContent();
+    }
+
+    /**
+     * Count a rejected assertion toward the email-first account's lockout.
+     *
+     * Mirrors a wrong password; unscoped and unknown-email requests target no account.
+     *
+     * @param int|null $scopeCustomerId
+     */
+    private function recordFailure(?int $scopeCustomerId): void
+    {
+        if ($scopeCustomerId === null || $scopeCustomerId <= 0) {
+            return;
+        }
+
+        try {
+            $this->authentication->processAuthenticationFailure($scopeCustomerId);
+        } catch (\Throwable $e) {
+            $this->logger->critical($e);
+        }
     }
 
     /**

@@ -97,6 +97,10 @@ class CredentialResource
             'attestation_type' => $credential->attestationType,
             'label' => $credential->label,
             'last_used_at' => $credential->lastUsedAt,
+            'user_handle' => $credential->userHandle,
+            'backup_eligible' => $this->flagToColumn($credential->backupEligible),
+            'backup_status' => $this->flagToColumn($credential->backupStatus),
+            'uv_initialized' => $this->flagToColumn($credential->uvInitialized),
         ];
 
         if ($credential->entityId === null) {
@@ -148,8 +152,32 @@ class CredentialResource
             attestationType: $this->nullableString($row['attestation_type'] ?? null),
             label: $this->nullableString($row['label'] ?? null),
             createdAt: $this->nullableString($row['created_at'] ?? null),
-            lastUsedAt: $this->nullableString($row['last_used_at'] ?? null)
+            lastUsedAt: $this->nullableString($row['last_used_at'] ?? null),
+            userHandle: $this->nullableString($row['user_handle'] ?? null),
+            backupEligible: $this->columnToFlag($row['backup_eligible'] ?? null),
+            backupStatus: $this->columnToFlag($row['backup_status'] ?? null),
+            uvInitialized: $this->columnToFlag($row['uv_initialized'] ?? null)
         );
+    }
+
+    /**
+     * Nullable flag to its nullable boolean column value.
+     *
+     * @param bool|null $flag
+     */
+    private function flagToColumn(?bool $flag): ?int
+    {
+        return $flag === null ? null : (int)$flag;
+    }
+
+    /**
+     * Nullable boolean column value to a nullable flag.
+     *
+     * @param mixed $value
+     */
+    private function columnToFlag(mixed $value): ?bool
+    {
+        return $value === null || $value === '' ? null : (bool)(int)$value;
     }
 
     /**

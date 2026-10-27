@@ -13,7 +13,6 @@ use Magento\Framework\Stdlib\DateTime\DateTime;
 use Symfony\Component\Uid\Uuid;
 use Webauthn\CredentialRecord;
 use Webauthn\PublicKeyCredentialDescriptor;
-use Webauthn\PublicKeyCredentialUserEntity;
 use Webauthn\TrustPath\EmptyTrustPath;
 
 /**
@@ -24,8 +23,10 @@ use Webauthn\TrustPath\EmptyTrustPath;
  * Type mapping between the two worlds:
  *  - the library uses raw binary ids/keys; we persist the credential id as
  *    base64url and the COSE public key as base64;
- *  - the WebAuthn user handle is the owning customer id (there is no external
- *    IdP, so the customer entity is the user);
+ *  - the WebAuthn user handle is stored per credential ({@see UserHandle}); rows
+ *    without one were registered with the owning customer id as handle;
+ *  - the owning customer is the row's `customer_id`, never derived from the handle;
+ *  - backup eligibility/state and uvInitialized are kept for the next ceremony;
  *  - the AAGUID is a {@see Uuid}; the all-zero (nil) AAGUID is stored as null.
  *
  * The stored columns are library-agnostic, so rows written under webauthn-lib 4.x
@@ -62,14 +63,23 @@ class CredentialSourceRepository
     }
 
     /**
-     * All stored credentials of the customer the user entity stands for.
+     * The owning customer id of a raw credential id, or null when unknown.
      *
-     * @param PublicKeyCredentialUserEntity $publicKeyCredentialUserEntity
+     * @param string $publicKeyCredentialId raw credential id bytes
+     */
+    public function findCustomerIdByCredentialId(string $publicKeyCredentialId): ?int
+    {
+        return $this->credentials->findByCredentialId($this->encodeBase64Url($publicKeyCredentialId))?->customerId;
+    }
+
+    /**
+     * All stored credentials of a customer.
+     *
+     * @param int $customerId
      * @return CredentialRecord[]
      */
-    public function findAllForUserEntity(PublicKeyCredentialUserEntity $publicKeyCredentialUserEntity): array
+    public function findAllForCustomer(int $customerId): array
     {
-        $customerId = (int)$publicKeyCredentialUserEntity->id;
         if ($customerId <= 0) {
             return [];
         }
@@ -81,7 +91,9 @@ class CredentialSourceRepository
     }
 
     /**
-     * Persist a credential after a successful assertion (fresh counter, last use).
+     * Persist a credential after a successful assertion (fresh counter, flags, last use).
+     *
+     * A no-op when the row is gone (revoked mid-ceremony): it is never re-created here.
      *
      * @param CredentialRecord $publicKeyCredentialSource
      */
@@ -89,6 +101,9 @@ class CredentialSourceRepository
     {
         $credentialId = $this->encodeBase64Url($publicKeyCredentialSource->publicKeyCredentialId);
         $existing = $this->credentials->findByCredentialId($credentialId);
+        if ($existing === null) {
+            return;
+        }
 
         $credential = $this->toCredential($publicKeyCredentialSource, $existing);
         // This is the assertion (login) write path; stamp the last successful use.
@@ -102,15 +117,18 @@ class CredentialSourceRepository
      *
      * The assertion write path ({@see saveCredentialSource}) is label-agnostic; this
      * is the registration entry point, so it records the customer-chosen label on
-     * the new row. The credential id is expected to be unused (the caller rejects
-     * duplicates first), so a new row is always created.
+     * the new row together with the user handle it was registered with. A new row
+     * is always created.
      *
      * @param CredentialRecord $source
+     * @param int $customerId owning customer entity id
      * @param string|null $label
+     * @throws \Magento\Framework\DB\Adapter\DuplicateException when the credential id is already stored
      */
-    public function saveNewCredential(CredentialRecord $source, ?string $label = null): Credential
+    public function saveNewCredential(CredentialRecord $source, int $customerId, ?string $label = null): Credential
     {
-        $credential = $this->toCredential($source, null);
+        $credential = $this->toCredential($source, new Credential(customerId: $customerId));
+        $credential->userHandle = $this->encodeBase64Url($source->userHandle);
         if ($label !== null && $label !== '') {
             $credential->label = $label;
         }
@@ -138,30 +156,37 @@ class CredentialSourceRepository
             EmptyTrustPath::create(),
             $aaguid,
             $this->decodeBase64($credential->publicKey),
-            (string)$credential->customerId,
-            $credential->signCount
+            $credential->userHandle !== null
+                ? $this->decodeBase64Url($credential->userHandle)
+                : (string)$credential->customerId,
+            $credential->signCount,
+            null,
+            $credential->backupEligible,
+            $credential->backupStatus,
+            // Unknown (legacy row) as false, so the next verified assertion records it.
+            $credential->uvInitialized ?? false
         );
     }
 
     /**
-     * Merge a library record into a (possibly existing) stored credential.
+     * Merge a library record into a stored credential.
      *
-     * On an existing row the owning customer, label and creation time are kept;
-     * the counter and mutable attestation fields are refreshed. A new row takes
-     * the customer id from the source's user handle.
+     * The owning customer, user handle, label and creation time are kept; the
+     * counter, flags and mutable attestation fields are refreshed.
      *
      * @param CredentialRecord $source
-     * @param Credential|null $existing
+     * @param Credential $credential
      */
-    private function toCredential(CredentialRecord $source, ?Credential $existing): Credential
+    private function toCredential(CredentialRecord $source, Credential $credential): Credential
     {
-        $credential = $existing ?? new Credential(customerId: (int)$source->userHandle);
-
         $credential->credentialId = $this->encodeBase64Url($source->publicKeyCredentialId);
         $credential->publicKey = $this->encodeBase64($source->credentialPublicKey);
         $credential->signCount = $source->counter;
         $credential->transports = $source->transports;
         $credential->attestationType = $source->attestationType;
+        $credential->backupEligible = $source->backupEligible;
+        $credential->backupStatus = $source->backupStatus;
+        $credential->uvInitialized = $source->uvInitialized;
 
         $aaguid = $source->aaguid->toRfc4122();
         $credential->aaguid = $aaguid === self::NIL_AAGUID ? null : $aaguid;

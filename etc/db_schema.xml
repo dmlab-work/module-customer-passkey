@@ -40,6 +40,14 @@
                 comment="Registration time"/>
         <column xsi:type="timestamp" name="last_used_at" nullable="true"
                 comment="Last successful assertion time"/>
+        <column xsi:type="varchar" name="user_handle" nullable="true" length="128"
+                comment="base64url WebAuthn user handle; NULL means the customer id"/>
+        <column xsi:type="boolean" name="backup_eligible" nullable="true"
+                comment="Authenticator backup eligibility (BE) flag"/>
+        <column xsi:type="boolean" name="backup_status" nullable="true"
+                comment="Authenticator backup state (BS) flag"/>
+        <column xsi:type="boolean" name="uv_initialized" nullable="true"
+                comment="User verification performed with this credential"/>
         <constraint xsi:type="primary" referenceId="PRIMARY">
             <column name="entity_id"/>
         </constraint>

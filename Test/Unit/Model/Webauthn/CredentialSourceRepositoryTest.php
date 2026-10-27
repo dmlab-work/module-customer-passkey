@@ -18,7 +18,6 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 use Webauthn\CredentialRecord;
 use Webauthn\PublicKeyCredentialDescriptor;
-use Webauthn\PublicKeyCredentialUserEntity;
 use Webauthn\TrustPath\EmptyTrustPath;
 
 #[AllowMockObjectsWithoutExpectations]
@@ -99,9 +98,53 @@ class CredentialSourceRepositoryTest extends TestCase
         self::assertSame(self::NIL_AAGUID, $source->aaguid->toRfc4122());
     }
 
-    public function testFindAllForUserEntityMapsEachCredential(): void
+    public function testFindOneMapsStoredUserHandleAndFlags(): void
     {
-        $user = PublicKeyCredentialUserEntity::create('john@example.com', '42', 'John');
+        $credential = new Credential(
+            customerId: 42,
+            credentialId: $this->encodeBase64Url('c'),
+            publicKey: base64_encode('k'),
+            userHandle: $this->encodeBase64Url("opaque\x00handle"),
+            backupEligible: true,
+            backupStatus: false,
+            uvInitialized: true
+        );
+        $this->credentials->method('findByCredentialId')->willReturn($credential);
+
+        $source = $this->repository->findOneByCredentialId('c');
+
+        self::assertSame("opaque\x00handle", $source->userHandle);
+        self::assertTrue($source->backupEligible);
+        self::assertFalse($source->backupStatus);
+        self::assertTrue($source->uvInitialized);
+    }
+
+    public function testFindOneMapsLegacyRowFlags(): void
+    {
+        $credential = new Credential(customerId: 42, credentialId: $this->encodeBase64Url('c'), publicKey: 'aw==');
+        $this->credentials->method('findByCredentialId')->willReturn($credential);
+
+        $source = $this->repository->findOneByCredentialId('c');
+
+        self::assertNull($source->backupEligible);
+        self::assertNull($source->backupStatus);
+        // Unknown counts as not yet verified, so the next UV assertion records it.
+        self::assertFalse($source->uvInitialized);
+    }
+
+    public function testFindCustomerIdByCredentialId(): void
+    {
+        $this->credentials->method('findByCredentialId')->willReturnMap([
+            [$this->encodeBase64Url('known'), new Credential(customerId: 42, credentialId: 'x')],
+            [$this->encodeBase64Url('missing'), null],
+        ]);
+
+        self::assertSame(42, $this->repository->findCustomerIdByCredentialId('known'));
+        self::assertNull($this->repository->findCustomerIdByCredentialId('missing'));
+    }
+
+    public function testFindAllForCustomerMapsEachCredential(): void
+    {
         $credentials = [
             new Credential(customerId: 42, credentialId: $this->encodeBase64Url('a'), publicKey: base64_encode('ka')),
             new Credential(customerId: 42, credentialId: $this->encodeBase64Url('b'), publicKey: base64_encode('kb')),
@@ -109,42 +152,28 @@ class CredentialSourceRepositoryTest extends TestCase
         $this->credentials->expects(self::once())->method('listByCustomer')
             ->with(42)->willReturn($credentials);
 
-        $sources = $this->repository->findAllForUserEntity($user);
+        $sources = $this->repository->findAllForCustomer(42);
 
         self::assertCount(2, $sources);
         self::assertSame('a', $sources[0]->publicKeyCredentialId);
         self::assertSame('b', $sources[1]->publicKeyCredentialId);
     }
 
-    public function testFindAllForInvalidUserHandleReturnsEmpty(): void
+    public function testFindAllForInvalidCustomerReturnsEmpty(): void
     {
-        $user = PublicKeyCredentialUserEntity::create('guest', 'not-a-number', 'Guest');
         $this->credentials->expects(self::never())->method('listByCustomer');
 
-        self::assertSame([], $this->repository->findAllForUserEntity($user));
+        self::assertSame([], $this->repository->findAllForCustomer(0));
     }
 
-    public function testSaveNewCredentialTakesCustomerFromUserHandle(): void
+    public function testSaveCredentialSourceNeverRecreatesARemovedRow(): void
     {
-        $source = $this->source('new-cred', 'new-key', userHandle: '77', counter: 0, aaguid: self::NIL_AAGUID);
+        $source = $this->source('gone', 'key', userHandle: '77', counter: 1, aaguid: self::NIL_AAGUID);
         $this->credentials->method('findByCredentialId')->willReturn(null);
 
-        $saved = null;
-        $this->credentials->expects(self::once())->method('save')
-            ->willReturnCallback(function (Credential $c) use (&$saved): Credential {
-                $saved = $c;
-                return $c;
-            });
+        $this->credentials->expects(self::never())->method('save');
 
         $this->repository->saveCredentialSource($source);
-
-        self::assertNull($saved->entityId);
-        self::assertSame(77, $saved->customerId);
-        self::assertSame($this->encodeBase64Url('new-cred'), $saved->credentialId);
-        self::assertSame(base64_encode('new-key'), $saved->publicKey);
-        self::assertSame(0, $saved->signCount);
-        self::assertNull($saved->aaguid);
-        self::assertSame('none', $saved->attestationType);
     }
 
     public function testSaveExistingCredentialPreservesOwnershipAndUpdatesCounter(): void
@@ -170,9 +199,16 @@ class CredentialSourceRepositoryTest extends TestCase
                 return $c;
             });
 
+        $source->backupEligible = true;
+        $source->backupStatus = true;
+        $source->uvInitialized = true;
         $this->repository->saveCredentialSource($source);
 
         self::assertSame(9, $saved->entityId);
+        self::assertTrue($saved->backupEligible);
+        self::assertTrue($saved->backupStatus);
+        self::assertTrue($saved->uvInitialized);
+        self::assertNull($saved->userHandle, 'The registered handle is never rewritten on login.');
         // Ownership is not reassigned from the assertion's user handle.
         self::assertSame(42, $saved->customerId);
         self::assertSame('My laptop', $saved->label);
@@ -246,26 +282,9 @@ class CredentialSourceRepositoryTest extends TestCase
         self::assertSame(self::AAGUID, $this->repository->findOneByCredentialId('c')->aaguid->toRfc4122());
     }
 
-    public function testSaveCredentialSourceStampsLastUsedOnNewRow(): void
-    {
-        $source = $this->source('login-cred', 'login-key', userHandle: '77', counter: 1, aaguid: self::NIL_AAGUID);
-        $this->credentials->method('findByCredentialId')->willReturn(null);
-
-        $saved = null;
-        $this->credentials->expects(self::once())->method('save')
-            ->willReturnCallback(function (Credential $c) use (&$saved): Credential {
-                $saved = $c;
-                return $c;
-            });
-
-        $this->repository->saveCredentialSource($source);
-
-        self::assertSame(self::NOW, $saved->lastUsedAt);
-    }
-
     public function testSaveNewCredentialAppliesLabelToNewRow(): void
     {
-        $source = $this->source('fresh', 'fresh-key', userHandle: '55', counter: 0, aaguid: self::AAGUID);
+        $source = $this->source('fresh', 'fresh-key', userHandle: 'opaque', counter: 0, aaguid: self::AAGUID);
 
         $saved = null;
         $this->credentials->expects(self::once())->method('save')
@@ -274,10 +293,11 @@ class CredentialSourceRepositoryTest extends TestCase
                 return $c;
             });
 
-        $this->repository->saveNewCredential($source, 'Work key');
+        $this->repository->saveNewCredential($source, 55, 'Work key');
 
         self::assertNull($saved->entityId);
         self::assertSame(55, $saved->customerId);
+        self::assertSame($this->encodeBase64Url('opaque'), $saved->userHandle);
         self::assertSame($this->encodeBase64Url('fresh'), $saved->credentialId);
         self::assertSame('Work key', $saved->label);
         self::assertSame(self::AAGUID, $saved->aaguid);
@@ -294,7 +314,7 @@ class CredentialSourceRepositoryTest extends TestCase
                 return $c;
             });
 
-        $this->repository->saveNewCredential($source, null);
+        $this->repository->saveNewCredential($source, 55, null);
 
         self::assertNull($saved->label);
     }

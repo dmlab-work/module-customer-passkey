@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Controller\Manage;
 
+use DmLab\CustomerPasskey\Model\Credential;
 use DmLab\CustomerPasskey\Model\CredentialRepository;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\Action\HttpPostActionInterface;
@@ -21,7 +22,8 @@ use Magento\Framework\Controller\Result\JsonFactory;
  * ({@see CredentialRepository::findOwnedByCustomer()}), so a forged `entity_id`
  * pointing at another shopper's passkey resolves to nothing and is refused — a
  * customer can only manage their own credentials. A blank label clears it (the
- * list falls back to a generic name). Guests get a 403 JSON error.
+ * list falls back to a generic name); a longer one is cut to the column width.
+ * Guests get a 403 JSON error.
  */
 class Rename implements HttpPostActionInterface
 {
@@ -60,7 +62,7 @@ class Rename implements HttpPostActionInterface
             return $this->error($result, 404, __('Passkey not found.'));
         }
 
-        $label = trim((string)$this->request->getParam('label', ''));
+        $label = mb_substr(trim((string)$this->request->getParam('label', '')), 0, Credential::LABEL_MAX_LENGTH);
         $credential->label = $label !== '' ? $label : null;
         $this->credentials->save($credential);
 

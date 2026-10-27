@@ -22,8 +22,8 @@ use Webauthn\PublicKeyCredentialRequestOptions;
 /**
  * Verifies a WebAuthn authentication (assertion) response against the challenge
  * the {@see \DmLab\CustomerPasskey\Controller\Login\Options} controller
- * issued, returning the {@see CredentialRecord} whose owning customer id
- * ({@see CredentialRecord::$userHandle}) the caller logs in.
+ * issued, returning the {@see CredentialRecord} whose owning customer
+ * ({@see CredentialSourceRepository::findCustomerIdByCredentialId}) the caller logs in.
  *
  * The stored credential is resolved by the asserted credential id through our
  * storage ({@see CredentialSourceRepository}); an unknown id is rejected before
@@ -31,13 +31,18 @@ use Webauthn\PublicKeyCredentialRequestOptions;
  * match, exact store origin ({@see CeremonyFactory}), RP-ID binding, user
  * presence/verification, the signature against the stored public key, and the
  * sign counter — a counter that did not advance is a cloned authenticator and
- * throws. On success the source carries the fresh counter for the caller to persist.
+ * throws. The client data must be of type `webauthn.get` and the backup-eligible
+ * flag must match the stored one (WebAuthn §7.2 steps 11 and 17). On success the
+ * source carries the fresh counter and flags for the caller to persist.
  *
  * Every rejection of the client's response is a {@see WebauthnException}; anything
  * else escaping {@see verify()} is a server fault.
  */
 class AssertionVerifier
 {
+    /** clientDataJSON.type of an authentication ceremony (WebAuthn §7.2 step 11). */
+    private const CLIENT_DATA_TYPE = 'webauthn.get';
+
     /**
      * @param Config $config
      * @param RelyingPartyEntityFactory $relyingPartyEntityFactory
@@ -92,6 +97,9 @@ class AssertionVerifier
                 'The credential is not an authentication (assertion) response.'
             );
         }
+        if ($response->clientDataJSON->type !== self::CLIENT_DATA_TYPE) {
+            throw AuthenticatorResponseVerificationException::create('The client data type is not "webauthn.get".');
+        }
 
         $source = $this->credentialSourceRepository->findOneByCredentialId($publicKeyCredential->rawId);
         if ($source === null) {
@@ -102,10 +110,20 @@ class AssertionVerifier
         // An empty library allowCredentials list is not enforced by the request
         // ceremony, so this is checked here — it is also what makes disabling
         // passwordless login effective server-side (an unknown email scopes to 0).
-        if ($expectedCustomerId !== null && (int)$source->userHandle !== $expectedCustomerId) {
+        if ($expectedCustomerId !== null
+            && $this->credentialSourceRepository->findCustomerIdByCredentialId($publicKeyCredential->rawId)
+                !== $expectedCustomerId
+        ) {
             throw AuthenticatorResponseVerificationException::create(
                 'The credential does not belong to the requested account.'
             );
+        }
+
+        // A credential's backup eligibility is fixed at creation; a change means another authenticator.
+        if ($source->backupEligible !== null
+            && $source->backupEligible !== $response->authenticatorData->isBackupEligible()
+        ) {
+            throw AuthenticatorResponseVerificationException::create('The backup eligibility flag changed.');
         }
 
         try {

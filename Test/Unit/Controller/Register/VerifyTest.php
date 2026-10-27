@@ -19,6 +19,8 @@ use Magento\Customer\Model\Session;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\Result\JsonFactory;
+use Magento\Framework\DB\Adapter\DuplicateException;
+use Magento\Framework\Stdlib\DateTime\DateTime;
 use Magento\Framework\TestFramework\Unit\Helper\MockCreationTrait;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -216,12 +218,13 @@ class VerifyTest extends TestCase
         self::assertSame($this->json, $controller->execute());
     }
 
-    public function testRejectsMalformedPayloadBeforeConsumingChallenge(): void
+    public function testMalformedPayloadBurnsTheChallenge(): void
     {
         $this->loginAs();
         $this->params('not-json');
 
-        $this->challengeStorage->expects(self::never())->method('consume');
+        $this->challengeStorage->expects(self::once())->method('consume')
+            ->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
         $this->verifier->expects(self::never())->method('verify');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(400);
 
@@ -303,7 +306,7 @@ class VerifyTest extends TestCase
         $this->sourceRepository->method('findOneByCredentialId')->willReturn(null);
 
         $this->sourceRepository->expects(self::once())->method('saveNewCredential')
-            ->with($source, 'My laptop');
+            ->with($source, 42, 'My laptop');
         $this->notifier->expects(self::once())->method('notifyAdded')
             ->with($customer, 'My laptop');
         $this->json->expects(self::never())->method('setHttpResponseCode');
@@ -324,9 +327,40 @@ class VerifyTest extends TestCase
         $this->sourceRepository->method('findOneByCredentialId')->willReturn(null);
 
         $this->sourceRepository->expects(self::once())->method('saveNewCredential')
-            ->with(self::isInstanceOf(CredentialRecord::class), null);
+            ->with(self::isInstanceOf(CredentialRecord::class), 42, null);
 
         self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testConcurrentDuplicateInsertIsConflict(): void
+    {
+        $this->loginAs();
+        $this->params('{"id":"abc","type":"public-key"}');
+        $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
+        $this->verifier->method('verify')->willReturn($this->source());
+        $this->sourceRepository->method('findOneByCredentialId')->willReturn(null);
+        // Another request stored the same credential id between the check and the insert.
+        $this->sourceRepository->method('saveNewCredential')
+            ->willThrowException(new DuplicateException('Duplicate entry'));
+
+        $this->notifier->expects(self::never())->method('notifyAdded');
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(409);
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testLongLabelIsCutToColumnWidth(): void
+    {
+        $this->loginAs();
+        $this->params('{"id":"abc","type":"public-key"}', str_repeat('é', 300));
+        $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
+        $this->verifier->method('verify')->willReturn($this->source());
+        $this->sourceRepository->method('findOneByCredentialId')->willReturn(null);
+
+        $this->sourceRepository->expects(self::once())->method('saveNewCredential')
+            ->with(self::anything(), 42, str_repeat('é', 255));
+
+        $this->controller->execute();
     }
 
     public function testRejectsLoginMintedChallenge(): void
@@ -423,6 +457,11 @@ class VerifyTest extends TestCase
             unset($slot[$key]);
         });
 
-        return new ChallengeStorage($session);
+        $config = $this->createStub(Config::class);
+        $config->method('getTimeout')->willReturn(60000);
+        $dateTime = $this->createStub(DateTime::class);
+        $dateTime->method('gmtTimestamp')->willReturn(1_800_000_000);
+
+        return new ChallengeStorage($session, $config, $dateTime);
     }
 }

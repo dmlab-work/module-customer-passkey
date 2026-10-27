@@ -17,6 +17,7 @@ use DmLab\CustomerPasskey\Model\CredentialRepository;
 use DmLab\CustomerPasskey\Model\Notification\PasskeyNotifier;
 use DmLab\CustomerPasskey\Model\Registration\AttestationVerifier;
 use DmLab\CustomerPasskey\Model\Security\RateLimiter;
+use DmLab\CustomerPasskey\Model\Security\RecentAuthentication;
 use DmLab\CustomerPasskey\Model\Webauthn\ChallengeStorage;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
 use Magento\Customer\Api\CustomerRepositoryInterface;
@@ -54,6 +55,7 @@ class LifecycleTest extends TestCase
     private const NIL_AAGUID = '00000000-0000-0000-0000-000000000000';
     private const CUSTOMER_ID = 42;
     private const RAW_CREDENTIAL_ID = 'raw-cred-id';
+    private const USER_HANDLE = 'opaque-user-handle';
     private const LOGIN_TIME = '2026-07-09 12:00:00';
 
     /** @var CredentialRepository in-memory credential store shared across the flow */
@@ -139,7 +141,7 @@ class LifecycleTest extends TestCase
             EmptyTrustPath::create(),
             Uuid::fromString(self::NIL_AAGUID),
             'raw-cose-key',
-            (string)self::CUSTOMER_ID,
+            self::USER_HANDLE,
             $counter
         );
     }
@@ -224,6 +226,7 @@ class LifecycleTest extends TestCase
         $stored = $this->store->listByCustomer(self::CUSTOMER_ID)[0];
         self::assertSame('My laptop', $stored->label);
         self::assertSame(0, $stored->signCount);
+        self::assertSame(self::CUSTOMER_ID, $stored->customerId, 'The owner comes from the session, not the handle.');
         $entityId = $stored->entityId;
 
         // 2) Passwordless login: the assertion verifier is stubbed to return the same
@@ -303,13 +306,17 @@ class LifecycleTest extends TestCase
         $deleteRequest = $this->createMock(RequestInterface::class);
         $deleteRequest->method('getParam')->with('entity_id', 0)->willReturn($entityId);
 
+        $recentAuthentication = $this->createStub(RecentAuthentication::class);
+        $recentAuthentication->method('isFresh')->willReturn(true);
+
         $deleteJson = $this->json();
         $delete = new Delete(
             $deleteSession,
             $deleteRequest,
             $this->store,
             $this->jsonFactory($deleteJson),
-            $this->createStub(PasskeyNotifier::class)
+            $this->createStub(PasskeyNotifier::class),
+            $recentAuthentication
         );
 
         $deleteJson->expects(self::never())->method('setHttpResponseCode');

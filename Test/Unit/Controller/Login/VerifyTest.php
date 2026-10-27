@@ -26,6 +26,7 @@ use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Stdlib\Cookie\CookieMetadataFactory;
 use Magento\Framework\Stdlib\Cookie\PublicCookieMetadata;
 use Magento\Framework\Stdlib\CookieManagerInterface;
+use Magento\Framework\Stdlib\DateTime\DateTime;
 use Magento\Framework\TestFramework\Unit\Helper\MockCreationTrait;
 use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\StoreManagerInterface;
@@ -98,6 +99,9 @@ class VerifyTest extends TestCase
     /** @var Verify */
     private Verify $controller;
 
+    /** @var int|null owning customer the credential storage resolves the asserted credential to */
+    private ?int $ownerId = 42;
+
     protected function setUp(): void
     {
         $this->config = $this->createMock(Config::class);
@@ -106,6 +110,8 @@ class VerifyTest extends TestCase
         $this->verifier = $this->createMock(AssertionVerifier::class);
         $this->challengeStorage = $this->createMock(ChallengeStorage::class);
         $this->sourceRepository = $this->createMock(CredentialSourceRepository::class);
+        $this->sourceRepository->method('findCustomerIdByCredentialId')
+            ->willReturnCallback(fn(): ?int => $this->ownerId);
         $this->customerRepository = $this->createMock(CustomerRepositoryInterface::class);
         $this->logger = $this->createMock(LoggerInterface::class);
         $this->rateLimiter = $this->createMock(RateLimiter::class);
@@ -237,13 +243,16 @@ class VerifyTest extends TestCase
         self::assertSame($this->json, $controller->execute());
     }
 
-    public function testRejectsMalformedPayloadBeforeConsumingChallenge(): void
+    public function testMalformedPayloadBurnsTheChallenge(): void
     {
         $this->enabled();
         $this->payload('not-json');
 
-        $this->challengeStorage->expects(self::never())->method('consume');
+        // Consumed first: each challenge gets exactly one attempt, valid payload or not.
+        $this->challengeStorage->expects(self::once())->method('consume')
+            ->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
         $this->verifier->expects(self::never())->method('verify');
+        $this->authentication->expects(self::never())->method('processAuthenticationFailure');
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(400);
 
         self::assertSame($this->json, $this->controller->execute());
@@ -277,6 +286,52 @@ class VerifyTest extends TestCase
         $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
         $this->json->expects(self::once())->method('setData')
             ->with(self::callback(static fn(array $d): bool => $d['success'] === false));
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testRejectedScopedAssertionCountsTowardLockout(): void
+    {
+        $this->enabled();
+        $this->payload();
+        $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => 42]);
+        $this->verifier->method('verify')
+            ->willThrowException(AuthenticatorResponseVerificationException::create('Invalid signature.'));
+
+        $this->authentication->expects(self::once())->method('processAuthenticationFailure')->with(42);
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
+
+        self::assertSame($this->json, $this->controller->execute());
+    }
+
+    public function testRejectedUnscopedOrUnknownEmailAssertionDoesNotTouchLockout(): void
+    {
+        $this->enabled();
+        $this->payload();
+        $this->challengeStorage->method('consume')->willReturnOnConsecutiveCalls(
+            ['challenge' => 'raw-challenge', 'scope' => null],
+            ['challenge' => 'raw-challenge', 'scope' => 0]
+        );
+        $this->verifier->method('verify')
+            ->willThrowException(AuthenticatorResponseVerificationException::create('Invalid signature.'));
+
+        $this->authentication->expects(self::never())->method('processAuthenticationFailure');
+
+        $this->controller->execute();
+        $this->controller->execute();
+    }
+
+    public function testRejectsWhenCredentialWasRemovedMidCeremony(): void
+    {
+        $this->enabled();
+        $this->payload();
+        $this->challengeStorage->method('consume')->willReturn(['challenge' => 'raw-challenge', 'scope' => null]);
+        $this->verifier->method('verify')->willReturn($this->source());
+        $this->ownerId = null;
+
+        $this->customerRepository->expects(self::never())->method('getById');
+        $this->session->expects(self::never())->method('setCustomerDataAsLoggedIn');
+        $this->json->expects(self::once())->method('setHttpResponseCode')->with(422);
 
         self::assertSame($this->json, $this->controller->execute());
     }
@@ -566,7 +621,12 @@ class VerifyTest extends TestCase
             unset($slot[$key]);
         });
 
-        return new ChallengeStorage($session);
+        $config = $this->createStub(Config::class);
+        $config->method('getTimeout')->willReturn(60000);
+        $dateTime = $this->createStub(DateTime::class);
+        $dateTime->method('gmtTimestamp')->willReturn(1_800_000_000);
+
+        return new ChallengeStorage($session, $config, $dateTime);
     }
 
     public function testDeletesPrivateContentCookieAfterLogin(): void

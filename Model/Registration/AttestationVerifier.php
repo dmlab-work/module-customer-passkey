@@ -7,11 +7,11 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Model\Registration;
 
-use Cose\Algorithms;
 use DmLab\CustomerPasskey\Model\Config;
 use DmLab\CustomerPasskey\Model\Webauthn\CeremonyFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialLoader;
 use DmLab\CustomerPasskey\Model\Webauthn\RelyingPartyEntityFactory;
+use DmLab\CustomerPasskey\Model\Webauthn\UserHandle;
 use Webauthn\AuthenticatorAttestationResponse;
 use Webauthn\AuthenticatorAttestationResponseValidator;
 use Webauthn\AuthenticatorSelectionCriteria;
@@ -31,38 +31,40 @@ use Webauthn\PublicKeyCredentialUserEntity;
  * the logged-in customer (the relying party is Magento, so the customer is the
  * WebAuthn user). The library's creation ceremony then enforces challenge match,
  * exact store origin ({@see CeremonyFactory}), RP-ID binding, user
- * presence/verification and a known attestation format; any rejection of the client's response throws a {@see WebauthnException}, which
- * the controller reports generically.
+ * presence/verification and a known attestation format; any rejection of the
+ * client's response throws a {@see WebauthnException}, which the controller
+ * reports generically.
  *
- * The `none` attestation format only is accepted — this module requests no
- * attestation conveyance (privacy-preserving, matching the options factory), so
- * authenticators return an empty statement.
+ * This module requests no attestation conveyance (privacy-preserving), so the
+ * `none` format is expected; `packed` self-attestation, which clients pass through
+ * unchanged, is accepted too ({@see CeremonyFactory}). The client data must be of
+ * type `webauthn.create` — the library accepts either ceremony type.
  */
 class AttestationVerifier
 {
-    /**
-     * COSE algorithms accepted, mirroring the creation options: ES256 then RS256.
-     */
-    private const ALGORITHMS = [Algorithms::COSE_ALGORITHM_ES256, Algorithms::COSE_ALGORITHM_RS256];
+    /** clientDataJSON.type of a registration ceremony (WebAuthn §7.1 step 7). */
+    private const CLIENT_DATA_TYPE = 'webauthn.create';
 
     /**
      * @param RelyingPartyEntityFactory $relyingPartyEntityFactory
      * @param Config $config
      * @param CredentialLoader $credentialLoader
      * @param CeremonyFactory $ceremonyFactory
+     * @param UserHandle $userHandle
      */
     public function __construct(
         private readonly RelyingPartyEntityFactory $relyingPartyEntityFactory,
         private readonly Config $config,
         private readonly CredentialLoader $credentialLoader,
-        private readonly CeremonyFactory $ceremonyFactory
+        private readonly CeremonyFactory $ceremonyFactory,
+        private readonly UserHandle $userHandle
     ) {
     }
 
     /**
      * Verify the attestation and return the credential source to store.
      *
-     * @param int $customerId owning customer entity id (the WebAuthn user handle)
+     * @param int $customerId owning customer entity id
      * @param string $username account email issued as the credential's `name`
      * @param string $displayName human-friendly account name
      * @param string $challenge the raw challenge consumed from the session
@@ -82,11 +84,11 @@ class AttestationVerifier
         $rp = $this->relyingPartyEntityFactory->create($storeId);
         $options = PublicKeyCredentialCreationOptions::create(
             $rp,
-            PublicKeyCredentialUserEntity::create($username, (string)$customerId, $displayName),
+            PublicKeyCredentialUserEntity::create($username, $this->userHandle->forCustomer($customerId), $displayName),
             $challenge,
             array_map(
                 static fn(int $alg): PublicKeyCredentialParameters => PublicKeyCredentialParameters::createPk($alg),
-                self::ALGORITHMS
+                CeremonyFactory::ALGORITHMS
             ),
             // Carry the configured user-verification requirement: the creation
             // ceremony reads it from authenticatorSelection, so without it a
@@ -100,6 +102,9 @@ class AttestationVerifier
             throw AuthenticatorResponseVerificationException::create(
                 'The credential is not a registration (attestation) response.'
             );
+        }
+        if ($response->clientDataJSON->type !== self::CLIENT_DATA_TYPE) {
+            throw AuthenticatorResponseVerificationException::create('The client data type is not "webauthn.create".');
         }
 
         try {

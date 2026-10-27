@@ -7,6 +7,8 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Test\Unit\Model\Webauthn;
 
+use DmLab\CustomerPasskey\Model\Config;
+use DmLab\CustomerPasskey\Model\Webauthn\CeremonyFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialLoader;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -23,7 +25,7 @@ class CredentialLoaderTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->loader = new CredentialLoader();
+        $this->loader = new CredentialLoader(new CeremonyFactory($this->createStub(Config::class)));
     }
 
     public function testLoadsAssertion(): void

@@ -11,7 +11,7 @@ external IdP, no OIDC, and no shared SSO core. The module is standalone and coex
 
 ## Requirements
 
-- Magento 2.4.x (tested on 2.4.9), PHP 8.3–8.5
+- Magento 2.4.x (tested on 2.4.9), PHP 8.3–8.5 with `ext-sodium` (EdDSA)
 - `web-auth/webauthn-lib ^5.3.5`, `web-auth/cose-lib ^4.8`, `symfony/serializer`, `symfony/uid` (`^6.4|^7.0|^8.0`)
 - Magento modules Customer, Store, Config, Backend, Ui, Email (bundled with Magento)
 - HTTPS on the storefront (WebAuthn requires a secure context)
@@ -42,6 +42,7 @@ Admin → Stores → Configuration → **DMLab → Customer Passkey**
 |---|---|---|
 | Enable Passkey Login | No | Master switch; adds the button and enables all endpoints. |
 | Relying Party Display Name | store name | Name the authenticator shows during a ceremony. |
+| Relying Party ID | store host | Domain passkeys are bound to: the store host or a parent domain of it (other values are ignored). A parent domain shares passkeys across subdomain stores. Changing it invalidates existing passkeys. |
 | User Verification | required | `required` / `preferred` / `discouraged`. Only `required` is enforced server-side; lower values let a passkey sign in on device possession alone (no PIN/biometric). |
 | Authenticator Attachment | any | `any` / `platform` (Touch ID, Windows Hello) / `cross-platform` (security keys). |
 | Ceremony Timeout (ms) | 60000 | Browser wait for the authenticator. |
@@ -56,7 +57,7 @@ Admin → Stores → Configuration → **DMLab → Customer Passkey**
 | Email Sender | General Contact | Store email identity. |
 | Passkey Added / Removed Template | module default | Override under Marketing → Email Templates. |
 
-The **RP ID** is derived from the base-URL host (e.g. `magento.loc`). The ceremony origin must
+The **RP ID** defaults to the base-URL host (e.g. `magento.loc`). The ceremony origin must
 exactly match one of the current store view's base URLs (secure/unsecure, scheme + host + port);
 other subdomains are refused. Both must be stable HTTPS hosts.
 
@@ -67,8 +68,8 @@ passkey*, and completes the browser prompt (Touch ID / Face ID / Windows Hello /
 Outside the re-authentication window the page asks for the current password first; customers without
 a password (e.g. SSO-created) are told to sign in again. Wrong passwords count toward Magento's
 customer lockout; a locked account is refused. "Login as Customer" sessions always need the password. Every new passkey is a resident
-(discoverable) key. Credentials can be renamed and deleted from the same page; a customer can only
-manage their own.
+(discoverable) key. Credentials can be renamed and deleted from the same page; deleting re-authenticates
+like adding, and a customer can only manage their own.
 
 **Passwordless login** — on the storefront login page a *Sign in with a passkey* button runs
 `navigator.credentials.get()` with no email (discoverable/resident keys). A valid assertion resolves
@@ -76,7 +77,8 @@ the credential to its customer and establishes the storefront session and refres
 (minicart, customer name). The button renders only when *Allow Passwordless Sign-In* is Yes. Login is
 discoverable-only: `allowCredentials` is always empty, so the response is identical for any email.
 An optional `email` parameter on `login/options` only scopes the challenge server-side — the
-assertion must then belong to that customer.
+assertion must then belong to that customer, and a rejected assertion counts toward that account's
+native lockout.
 
 **Admin revoke** — Customers → All Customers → edit → **Passkeys** tab lists the customer's passkeys
 (label, created, last used, AAGUID) with a *Revoke* action for a lost device. Requires ACL
@@ -92,14 +94,18 @@ Frontend router `customerpasskey`:
 | Authentication | `customerpasskey/login/options` | `customerpasskey/login/verify` |
 | Manage | `customerpasskey/manage/index`, `.../rename`, `.../delete` | |
 
-Outside the re-authentication window `register/options` returns
+Outside the re-authentication window `register/options` and `manage/delete` return
 `401 {"success": false, "reauth": true, "message": "..."}`; retry with a `password` param.
 
 Admin router `customerpasskey` (ACL `DmLab_CustomerPasskey::manage`): `customerpasskey/customer/revoke`
 — POST `customer_id`, `entity_id`, `form_key`; redirects back to the customer edit page.
 
-Challenges are one-time, bound to their ceremony (a login challenge cannot complete a registration)
-and stored in the customer session; ceremony endpoints are rate-limited.
+Challenges are one-time, bound to their ceremony (a login challenge cannot complete a registration),
+stored in the customer session and expire after the ceremony timeout + 60 s; ceremony endpoints are
+rate-limited per client IP (Magento `RemoteAddress`).
+WebAuthn user handles are opaque (HMAC of the customer id under the deployment key); passkeys
+enrolled earlier keep their customer-id handle. Algorithms: ES256, EdDSA, RS256; attestation
+`none` (packed self-attestation accepted).
 The authenticator sign counter is persisted and checked on every assertion — a regression is
 flagged as a possible clone and denied.
 

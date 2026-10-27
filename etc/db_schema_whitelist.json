@@ -11,7 +11,11 @@
             "attestation_type": true,
             "label": true,
             "created_at": true,
-            "last_used_at": true
+            "last_used_at": true,
+            "user_handle": true,
+            "backup_eligible": true,
+            "backup_status": true,
+            "uv_initialized": true
         },
         "constraint": {
             "PRIMARY": true,

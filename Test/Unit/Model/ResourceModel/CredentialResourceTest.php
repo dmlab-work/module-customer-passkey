@@ -62,6 +62,10 @@ class CredentialResourceTest extends TestCase
             'label' => 'My laptop',
             'created_at' => '2026-07-09 10:00:00',
             'last_used_at' => '2026-07-09 12:00:00',
+            'user_handle' => 'b3BhcXVl',
+            'backup_eligible' => '1',
+            'backup_status' => '0',
+            'uv_initialized' => null,
         ];
     }
 
@@ -83,6 +87,10 @@ class CredentialResourceTest extends TestCase
         self::assertSame('My laptop', $credential->label);
         self::assertSame('2026-07-09 10:00:00', $credential->createdAt);
         self::assertSame('2026-07-09 12:00:00', $credential->lastUsedAt);
+        self::assertSame('b3BhcXVl', $credential->userHandle);
+        self::assertTrue($credential->backupEligible);
+        self::assertFalse($credential->backupStatus);
+        self::assertNull($credential->uvInitialized);
     }
 
     public function testGetByCredentialIdReturnsNullWhenAbsent(): void
@@ -147,7 +155,10 @@ class CredentialResourceTest extends TestCase
             transports: ['internal'],
             aaguid: 'aa-guid',
             attestationType: 'none',
-            label: 'My laptop'
+            label: 'My laptop',
+            userHandle: 'b3BhcXVl',
+            backupEligible: true,
+            backupStatus: false
         );
 
         $captured = null;
@@ -165,6 +176,10 @@ class CredentialResourceTest extends TestCase
         self::assertSame(42, $captured['customer_id']);
         self::assertSame('cred-abc', $captured['credential_id']);
         self::assertSame('["internal"]', $captured['transports']);
+        self::assertSame('b3BhcXVl', $captured['user_handle']);
+        self::assertSame(1, $captured['backup_eligible']);
+        self::assertSame(0, $captured['backup_status']);
+        self::assertNull($captured['uv_initialized']);
         self::assertArrayNotHasKey('created_at', $captured);
     }
 

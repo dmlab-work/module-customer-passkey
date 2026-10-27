@@ -7,8 +7,10 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Test\Unit\Model\Webauthn;
 
+use DmLab\CustomerPasskey\Model\Config;
 use DmLab\CustomerPasskey\Model\Webauthn\ChallengeStorage;
 use Magento\Customer\Model\Session;
+use Magento\Framework\Stdlib\DateTime\DateTime;
 use Magento\Framework\TestFramework\Unit\Helper\MockCreationTrait;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
@@ -26,6 +28,9 @@ class ChallengeStorageTest extends TestCase
     /** @var ChallengeStorage */
     private ChallengeStorage $storage;
 
+    /** @var int fake clock read by the storage (unix seconds) */
+    private int $now = 1_800_000_000;
+
     protected function setUp(): void
     {
         $this->store = [];
@@ -42,7 +47,43 @@ class ChallengeStorageTest extends TestCase
                 unset($this->store[$key]);
             });
 
-        $this->storage = new ChallengeStorage($session);
+        $config = $this->createStub(Config::class);
+        $config->method('getTimeout')->willReturn(60000);
+        $dateTime = $this->createStub(DateTime::class);
+        $dateTime->method('gmtTimestamp')->willReturnCallback(fn(): int => $this->now);
+
+        $this->storage = new ChallengeStorage($session, $config, $dateTime);
+    }
+
+    public function testChallengeIsAcceptedUntilTimeoutPlusGrace(): void
+    {
+        $this->storage->save(ChallengeStorage::CEREMONY_LOGIN, 'bytes');
+        $this->now += 60 + ChallengeStorage::EXPIRY_GRACE_SECONDS;
+
+        self::assertSame(
+            ['challenge' => 'bytes', 'scope' => null],
+            $this->storage->consume(ChallengeStorage::CEREMONY_LOGIN)
+        );
+    }
+
+    public function testExpiredChallengeIsRejectedAndCleared(): void
+    {
+        $this->storage->save(ChallengeStorage::CEREMONY_LOGIN, 'bytes');
+        $this->now += 60 + ChallengeStorage::EXPIRY_GRACE_SECONDS + 1;
+
+        self::assertNull($this->storage->consume(ChallengeStorage::CEREMONY_LOGIN));
+        self::assertSame([], $this->store);
+    }
+
+    public function testSlotWithoutIssueTimeIsRejected(): void
+    {
+        $this->store['dmlab_customer_passkey_challenge'] = (string)json_encode([
+            'c' => base64_encode('legacy'),
+            's' => null,
+            't' => ChallengeStorage::CEREMONY_LOGIN,
+        ]);
+
+        self::assertNull($this->storage->consume(ChallengeStorage::CEREMONY_LOGIN));
     }
 
     public function testChallengeIsConsumedOnce(): void

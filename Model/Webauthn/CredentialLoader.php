@@ -7,7 +7,6 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Model\Webauthn;
 
-use Webauthn\AttestationStatement\AttestationStatementSupportManager;
 use Webauthn\Denormalizer\WebauthnSerializerFactory;
 use Webauthn\Exception\InvalidDataException;
 use Webauthn\Exception\WebauthnException;
@@ -18,8 +17,8 @@ use Webauthn\PublicKeyCredentialDescriptor;
  * Turns the browser credential JSON (decoded to an array) into the library's
  * {@see PublicKeyCredential} via the library serializer.
  *
- * Only the `none` attestation statement support is registered (the manager's
- * default), matching the attestation conveyance this module requests. The
+ * Attestation formats are those the registration ceremony accepts
+ * ({@see CeremonyFactory::attestationStatementSupportManager}). The
  * top-level shape is checked first: the library denormalizer neither rejects a
  * missing member nor a non-`public-key` type. Every failure surfaces as
  * {@see InvalidDataException}: the payload is client input, so callers can treat
@@ -27,6 +26,14 @@ use Webauthn\PublicKeyCredentialDescriptor;
  */
 class CredentialLoader
 {
+    /**
+     * @param CeremonyFactory $ceremonyFactory
+     */
+    public function __construct(
+        private readonly CeremonyFactory $ceremonyFactory
+    ) {
+    }
+
     /**
      * Load the credential, throwing on any malformed input.
      *
@@ -48,7 +55,7 @@ class CredentialLoader
         }
 
         try {
-            $loaded = (new WebauthnSerializerFactory(AttestationStatementSupportManager::create()))
+            $loaded = (new WebauthnSerializerFactory($this->ceremonyFactory->attestationStatementSupportManager()))
                 ->create()
                 ->deserialize(json_encode($credential, JSON_THROW_ON_ERROR), PublicKeyCredential::class, 'json');
         } catch (WebauthnException $e) {

@@ -7,7 +7,9 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Model\Webauthn;
 
+use DmLab\CustomerPasskey\Model\Config;
 use Magento\Customer\Model\Session;
+use Magento\Framework\Stdlib\DateTime\DateTime;
 
 /**
  * One-time store for the WebAuthn ceremony challenge in the storefront session.
@@ -27,6 +29,9 @@ use Magento\Customer\Model\Session;
  * The slot is bound to the ceremony that minted it: consuming it for another
  * ceremony (e.g. a login-minted challenge sent to register/verify) clears it and
  * yields null, so one ceremony's gate cannot be bypassed via the other.
+ *
+ * The slot also expires server-side (WebAuthn §13.4.3): it is refused once older
+ * than the configured ceremony timeout plus {@see self::EXPIRY_GRACE_SECONDS}.
  */
 class ChallengeStorage
 {
@@ -36,11 +41,18 @@ class ChallengeStorage
     /** Session key holding the pending ceremony state (challenge + login scope + ceremony). */
     private const SESSION_KEY = 'dmlab_customer_passkey_challenge';
 
+    /** Leeway past the ceremony timeout for the verify round trip. */
+    public const EXPIRY_GRACE_SECONDS = 60;
+
     /**
      * @param Session $session
+     * @param Config $config
+     * @param DateTime $dateTime
      */
     public function __construct(
-        private readonly Session $session
+        private readonly Session $session,
+        private readonly Config $config,
+        private readonly DateTime $dateTime
     ) {
     }
 
@@ -58,6 +70,7 @@ class ChallengeStorage
             'c' => base64_encode($challenge),
             's' => $scopeCustomerId,
             't' => $ceremony,
+            'i' => $this->dateTime->gmtTimestamp(),
         ]));
     }
 
@@ -65,8 +78,8 @@ class ChallengeStorage
      * Return and clear the pending ceremony state, or null when none is pending.
      *
      * A second call returns null — the challenge is single-use. A slot minted for
-     * another ceremony (or without one, from a pre-upgrade session) is cleared too
-     * and yields null.
+     * another ceremony, an expired one, or one from a pre-upgrade session (no
+     * ceremony or issue time) is cleared too and yields null.
      *
      * @param string $ceremony self::CEREMONY_LOGIN or self::CEREMONY_REGISTER
      * @return array{challenge: string, scope: int|null}|null
@@ -86,6 +99,12 @@ class ChallengeStorage
         }
 
         if (($decoded['t'] ?? null) !== $ceremony) {
+            return null;
+        }
+
+        $issuedAt = (int)($decoded['i'] ?? 0);
+        $lifetime = (int)ceil($this->config->getTimeout() / 1000) + self::EXPIRY_GRACE_SECONDS;
+        if ($issuedAt <= 0 || $this->dateTime->gmtTimestamp() - $issuedAt > $lifetime) {
             return null;
         }
 

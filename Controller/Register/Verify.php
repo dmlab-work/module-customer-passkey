@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace DmLab\CustomerPasskey\Controller\Register;
 
 use DmLab\CustomerPasskey\Model\Config;
+use DmLab\CustomerPasskey\Model\Credential;
 use DmLab\CustomerPasskey\Model\Notification\PasskeyNotifier;
 use DmLab\CustomerPasskey\Model\Registration\AttestationVerifier;
 use DmLab\CustomerPasskey\Model\Security\RateLimiter;
@@ -19,6 +20,7 @@ use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\Result\JsonFactory;
+use Magento\Framework\DB\Adapter\DuplicateException;
 use Psr\Log\LoggerInterface;
 use Webauthn\Exception\WebauthnException;
 
@@ -27,12 +29,14 @@ use Webauthn\Exception\WebauthnException;
  * produced for the options {@see Options} issued, then stores the new credential
  * for the logged-in customer with an optional label.
  *
- * The one-time challenge is consumed from the session before verification, so a
- * replayed attestation finds none and is rejected. It must have been issued to the
- * current customer: the session survives a customer switch (e.g. Login as Customer),
- * so a challenge minted for another account is refused. A verified credential whose id
- * is already registered is refused (a passkey enrols once). Every validation
- * failure is logged and reported generically — details never reach the client.
+ * The one-time challenge is consumed from the session before anything else, so
+ * each challenge gets a single attempt and a replayed attestation finds none. It
+ * must have been issued to the current customer: the session survives a customer
+ * switch (e.g. Login as Customer), so a challenge minted for another account is
+ * refused. A credential id that is already registered is refused with 409 (a
+ * passkey enrols once), including a concurrent insert of the same id. Labels are
+ * cut to {@see Credential::LABEL_MAX_LENGTH}. Every validation failure is logged
+ * and reported generically — details never reach the client.
  */
 class Verify implements HttpPostActionInterface
 {
@@ -95,15 +99,15 @@ class Verify implements HttpPostActionInterface
             return $this->error($result, 429, __('Too many passkey attempts. Please wait and try again.'));
         }
 
-        $credential = $this->decodeCredential();
-        if ($credential === null) {
-            return $this->error($result, 400, __('Invalid passkey payload.'));
-        }
-
         $customerId = (int)$this->customerSession->getCustomerId();
         $pending = $this->challengeStorage->consume(ChallengeStorage::CEREMONY_REGISTER);
         if ($pending === null || $pending['challenge'] === '' || $pending['scope'] !== $customerId) {
             return $this->error($result, 400, __('Your passkey registration expired. Please try again.'));
+        }
+
+        $credential = $this->decodeCredential();
+        if ($credential === null) {
+            return $this->error($result, 400, __('Invalid passkey payload.'));
         }
 
         try {
@@ -129,8 +133,12 @@ class Verify implements HttpPostActionInterface
             return $this->error($result, 409, __('This passkey is already registered.'));
         }
 
-        $label = trim((string)$this->request->getParam('label', ''));
-        $this->credentialSourceRepository->saveNewCredential($source, $label !== '' ? $label : null);
+        $label = mb_substr(trim((string)$this->request->getParam('label', '')), 0, Credential::LABEL_MAX_LENGTH);
+        try {
+            $this->credentialSourceRepository->saveNewCredential($source, $customerId, $label !== '' ? $label : null);
+        } catch (DuplicateException $e) {
+            return $this->error($result, 409, __('This passkey is already registered.'));
+        }
         $this->notifier->notifyAdded($customer, $label);
 
         return $result->setData(['success' => true, 'message' => __('Passkey added.')]);

@@ -33,6 +33,17 @@
                         <field id="enabled">1</field>
                     </depends>
                 </field>
+                <field id="rp_id" translate="label comment" type="text" sortOrder="25"
+                       showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Relying Party ID</label>
+                    <comment>
+                        Domain passkeys are bound to. Blank uses the store host; a parent domain (e.g. example.com)
+                        shares passkeys across its subdomain stores. Changing it invalidates existing passkeys.
+                    </comment>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
+                </field>
                 <field id="user_verification" translate="label comment" type="select" sortOrder="30"
                        showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>User Verification</label>

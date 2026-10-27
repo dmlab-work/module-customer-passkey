@@ -7,10 +7,11 @@ declare(strict_types=1);
 
 namespace DmLab\CustomerPasskey\Model\Registration;
 
-use Cose\Algorithms;
 use DmLab\CustomerPasskey\Model\Config;
+use DmLab\CustomerPasskey\Model\Webauthn\CeremonyFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
 use DmLab\CustomerPasskey\Model\Webauthn\RelyingPartyEntityFactory;
+use DmLab\CustomerPasskey\Model\Webauthn\UserHandle;
 use Webauthn\AuthenticatorSelectionCriteria;
 use Webauthn\PublicKeyCredentialCreationOptions;
 use Webauthn\PublicKeyCredentialParameters;
@@ -21,7 +22,7 @@ use Webauthn\PublicKeyCredentialUserEntity;
  * `navigator.credentials.create()` for a logged-in customer.
  *
  * The customer entity is the WebAuthn user (no external IdP): the user handle is
- * the customer id, `name` the email and `displayName` the account name. The
+ * opaque ({@see UserHandle}), `name` the email and `displayName` the account name. The
  * customer's already-registered passkeys become `excludeCredentials` so the same
  * authenticator cannot enrol twice. Relying-party, timeout, user-verification and
  * authenticator-attachment come from {@see Config}; a resident key is always
@@ -33,27 +34,23 @@ class CreationOptionsFactory
     private const CHALLENGE_BYTES = 32;
 
     /**
-     * COSE algorithms offered, most preferred first: ES256 then RS256 — the pair
-     * mandated by the FIDO2 CTAP profile, covering every mainstream authenticator.
-     */
-    private const ALGORITHMS = [Algorithms::COSE_ALGORITHM_ES256, Algorithms::COSE_ALGORITHM_RS256];
-
-    /**
      * @param Config $config
      * @param RelyingPartyEntityFactory $relyingPartyEntityFactory
      * @param CredentialSourceRepository $credentialSourceRepository
+     * @param UserHandle $userHandle
      */
     public function __construct(
         private readonly Config $config,
         private readonly RelyingPartyEntityFactory $relyingPartyEntityFactory,
-        private readonly CredentialSourceRepository $credentialSourceRepository
+        private readonly CredentialSourceRepository $credentialSourceRepository,
+        private readonly UserHandle $userHandle
     ) {
     }
 
     /**
      * Creation options for the given customer, with a fresh random challenge.
      *
-     * @param int $customerId owning customer entity id (the WebAuthn user handle)
+     * @param int $customerId owning customer entity id
      * @param string $username account email shown as the credential's `name`
      * @param string $displayName human-friendly account name
      * @param int|string|null $storeId
@@ -64,7 +61,11 @@ class CreationOptionsFactory
         string $displayName,
         $storeId = null
     ): PublicKeyCredentialCreationOptions {
-        $user = PublicKeyCredentialUserEntity::create($username, (string)$customerId, $displayName);
+        $user = PublicKeyCredentialUserEntity::create(
+            $username,
+            $this->userHandle->forCustomer($customerId),
+            $displayName
+        );
 
         return PublicKeyCredentialCreationOptions::create(
             $this->relyingPartyEntityFactory->create($storeId),
@@ -72,13 +73,13 @@ class CreationOptionsFactory
             random_bytes(self::CHALLENGE_BYTES),
             array_map(
                 static fn(int $alg): PublicKeyCredentialParameters => PublicKeyCredentialParameters::createPk($alg),
-                self::ALGORITHMS
+                CeremonyFactory::ALGORITHMS
             ),
             $this->authenticatorSelection($storeId),
             PublicKeyCredentialCreationOptions::ATTESTATION_CONVEYANCE_PREFERENCE_NONE,
             array_map(
                 static fn($source) => $source->getPublicKeyCredentialDescriptor(),
-                $this->credentialSourceRepository->findAllForUserEntity($user)
+                $this->credentialSourceRepository->findAllForCustomer($customerId)
             ),
             $this->config->getTimeout($storeId)
         );

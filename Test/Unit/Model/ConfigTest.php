@@ -14,6 +14,7 @@ use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\Store;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
@@ -236,5 +237,34 @@ class ConfigTest extends TestCase
         $this->storeManager->method('getStore')->willReturn($store);
 
         self::assertSame([], $this->config->getAllowedOrigins());
+    }
+
+    /**
+     * @return array<string, array{string|null, string}>
+     */
+    public static function rpIdOverrides(): array
+    {
+        return [
+            'blank uses host' => [null, 'shop.example.com'],
+            'host itself' => ['shop.example.com', 'shop.example.com'],
+            'parent domain' => ['  .Example.COM ', 'example.com'],
+            'unrelated domain ignored' => ['evil.test', 'shop.example.com'],
+            'suffix without dot boundary ignored' => ['op.example.com', 'shop.example.com'],
+            'single label ignored' => ['com', 'shop.example.com'],
+            'child of host ignored' => ['a.shop.example.com', 'shop.example.com'],
+        ];
+    }
+
+    #[DataProvider('rpIdOverrides')]
+    public function testGetRpIdHonoursOnlyValidOverride(?string $configured, string $expected): void
+    {
+        $store = $this->createMock(Store::class);
+        $store->method('getBaseUrl')->willReturn('https://Shop.Example.com/');
+        $this->storeManager->method('getStore')->willReturn($store);
+        $this->scopeConfig->method('getValue')
+            ->with(Config::XML_PATH_RP_ID, ScopeInterface::SCOPE_STORE, null)
+            ->willReturn($configured);
+
+        self::assertSame($expected, $this->config->getRpId());
     }
 }

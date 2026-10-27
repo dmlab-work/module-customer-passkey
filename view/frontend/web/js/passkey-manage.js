@@ -8,7 +8,7 @@
  * via navigator.credentials.create(), posts the attestation to the verify
  * endpoint; a 401 `reauth` reply reveals the password field and the next attempt
  * sends it. Rename/Delete: post the row's entity_id (and a new label) to the
- * manage endpoints. Each successful action reloads the section. Bound with
+ * manage endpoints; Delete re-authenticates the same way as Add. Each successful action reloads the section. Bound with
  * data-mage-init from manage/list.phtml.
  */
 define(['jquery', 'mage/translate'], function ($, $t) {
@@ -111,7 +111,9 @@ define(['jquery', 'mage/translate'], function ($, $t) {
             type: credential.type,
             response: {
                 clientDataJSON: base64UrlEncode(credential.response.clientDataJSON),
-                attestationObject: base64UrlEncode(credential.response.attestationObject)
+                attestationObject: base64UrlEncode(credential.response.attestationObject),
+                transports: typeof credential.response.getTransports === 'function' ?
+                    credential.response.getTransports() : []
             }
         };
     }
@@ -201,16 +203,25 @@ define(['jquery', 'mage/translate'], function ($, $t) {
         });
 
         $root.on('click', '[data-role="passkey-delete"]', function () {
-            var $row = $(this).closest('[data-role="passkey-row"]');
+            var $row = $(this).closest('[data-role="passkey-row"]'),
+                password = $password.val(),
+                body = {entity_id: $row.data('entity-id')};
 
             if (!window.confirm($t('Remove this passkey?'))) {
                 return;
             }
 
+            if (password) {
+                body.password = password;
+            }
+
             notify('');
-            post(config.deleteUrl, config, {
-                entity_id: $row.data('entity-id')
-            }).then(reloadOn).catch(fail);
+            $password.val('');
+            post(config.deleteUrl, config, body).then(reloadOn, requireReauth).catch(function (error) {
+                if (error !== REAUTH_REQUIRED) {
+                    fail();
+                }
+            });
         });
     };
 });
