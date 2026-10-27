@@ -8,12 +8,12 @@ declare(strict_types=1);
 namespace DmLab\CustomerPasskey\Model\Authentication;
 
 use DmLab\CustomerPasskey\Model\Config;
+use DmLab\CustomerPasskey\Model\Webauthn\CeremonyFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialLoader;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
 use DmLab\CustomerPasskey\Model\Webauthn\RelyingPartyEntityFactory;
 use Webauthn\AuthenticatorAssertionResponse;
 use Webauthn\AuthenticatorAssertionResponseValidator;
-use Webauthn\CeremonyStep\CeremonyStepManagerFactory;
 use Webauthn\CredentialRecord;
 use Webauthn\Exception\AuthenticatorResponseVerificationException;
 use Webauthn\Exception\WebauthnException;
@@ -28,10 +28,10 @@ use Webauthn\PublicKeyCredentialRequestOptions;
  * The stored credential is resolved by the asserted credential id through our
  * storage ({@see CredentialSourceRepository}); an unknown id is rejected before
  * any cryptographic work. The library's request ceremony then enforces challenge
- * match, origin/RP-ID binding, user presence/verification, the signature against
- * the stored public key, and the sign counter — a counter that did not advance is
- * a cloned authenticator and throws. On success the source carries the fresh
- * counter for the caller to persist.
+ * match, exact store origin ({@see CeremonyFactory}), RP-ID binding, user
+ * presence/verification, the signature against the stored public key, and the
+ * sign counter — a counter that did not advance is a cloned authenticator and
+ * throws. On success the source carries the fresh counter for the caller to persist.
  *
  * Every rejection of the client's response is a {@see WebauthnException}; anything
  * else escaping {@see verify()} is a server fault.
@@ -43,12 +43,14 @@ class AssertionVerifier
      * @param RelyingPartyEntityFactory $relyingPartyEntityFactory
      * @param CredentialSourceRepository $credentialSourceRepository
      * @param CredentialLoader $credentialLoader
+     * @param CeremonyFactory $ceremonyFactory
      */
     public function __construct(
         private readonly Config $config,
         private readonly RelyingPartyEntityFactory $relyingPartyEntityFactory,
         private readonly CredentialSourceRepository $credentialSourceRepository,
-        private readonly CredentialLoader $credentialLoader
+        private readonly CredentialLoader $credentialLoader,
+        private readonly CeremonyFactory $ceremonyFactory
     ) {
     }
 
@@ -107,7 +109,9 @@ class AssertionVerifier
         }
 
         try {
-            return $this->validator()->check(
+            return AuthenticatorAssertionResponseValidator::create(
+                $this->ceremonyFactory->requestCeremony($storeId)
+            )->check(
                 $source,
                 $response,
                 $options,
@@ -120,17 +124,5 @@ class AssertionVerifier
             // E.g. a malformed DER signature fails in the ECDSA decoder with a plain InvalidArgumentException.
             throw AuthenticatorResponseVerificationException::create('The assertion could not be verified.', $e);
         }
-    }
-
-    /**
-     * Assertion-response validator running the standard request ceremony, whose
-     * counter step ({@see \Webauthn\CeremonyStep\CheckCounter}) performs clone
-     * detection.
-     */
-    private function validator(): AuthenticatorAssertionResponseValidator
-    {
-        return AuthenticatorAssertionResponseValidator::create(
-            (new CeremonyStepManagerFactory())->requestCeremony()
-        );
     }
 }

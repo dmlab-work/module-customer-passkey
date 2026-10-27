@@ -9,6 +9,7 @@ namespace DmLab\CustomerPasskey\Test\Unit\Model;
 
 use DmLab\CustomerPasskey\Model\Config;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\UrlInterface;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\Store;
 use Magento\Store\Model\StoreManagerInterface;
@@ -199,5 +200,31 @@ class ConfigTest extends TestCase
         $this->storeManager->method('getStore')->willReturn($store);
 
         self::assertSame('', $this->config->getRpId());
+    }
+
+    public function testGetAllowedOriginsCollectsDistinctStoreOrigins(): void
+    {
+        $store = $this->createMock(Store::class);
+        $store->method('getBaseUrl')->willReturnMap([
+            [UrlInterface::URL_TYPE_WEB, true, 'https://Shop.Example.com:443/'],
+            [UrlInterface::URL_TYPE_WEB, false, 'http://shop.example.com/'],
+            [UrlInterface::URL_TYPE_LINK, true, 'https://shop.example.com/en/'],
+            [UrlInterface::URL_TYPE_LINK, false, 'http://shop.example.com:8080/en/'],
+        ]);
+        $this->storeManager->method('getStore')->with(2)->willReturn($store);
+
+        self::assertSame(
+            ['https://shop.example.com', 'http://shop.example.com', 'http://shop.example.com:8080'],
+            $this->config->getAllowedOrigins(2)
+        );
+    }
+
+    public function testGetAllowedOriginsSkipsUrlsWithoutHost(): void
+    {
+        $store = $this->createMock(Store::class);
+        $store->method('getBaseUrl')->willReturn('not a url');
+        $this->storeManager->method('getStore')->willReturn($store);
+
+        self::assertSame([], $this->config->getAllowedOrigins());
     }
 }

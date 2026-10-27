@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace DmLab\CustomerPasskey\Model;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\UrlInterface;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
 
@@ -272,6 +273,50 @@ class Config
         $host = parse_url($baseUrl, PHP_URL_HOST);
 
         return is_string($host) ? $host : '';
+    }
+
+    /**
+     * Origins a ceremony may run on: the store's secure and unsecure base/link URLs,
+     * each as `scheme://host[:port]` (default port omitted). Matched exactly, so
+     * other subdomains of the RP ID and other ports are refused.
+     *
+     * @param int|string|null $storeId
+     * @return string[]
+     */
+    public function getAllowedOrigins($storeId = null): array
+    {
+        $store = $this->storeManager->getStore($storeId);
+        $origins = [];
+        foreach ([UrlInterface::URL_TYPE_WEB, UrlInterface::URL_TYPE_LINK] as $type) {
+            foreach ([true, false] as $secure) {
+                $origin = $this->toOrigin((string)$store->getBaseUrl($type, $secure));
+                if ($origin !== null) {
+                    $origins[$origin] = true;
+                }
+            }
+        }
+
+        return array_keys($origins);
+    }
+
+    /**
+     * The serialized origin of a URL as a browser reports it, or null without scheme/host.
+     *
+     * @param string $url
+     */
+    private function toOrigin(string $url): ?string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+            return null;
+        }
+
+        $scheme = strtolower($parts['scheme']);
+        $origin = $scheme . '://' . strtolower($parts['host']);
+        $port = $parts['port'] ?? null;
+        $defaultPort = ['https' => 443, 'http' => 80][$scheme] ?? null;
+
+        return $port === null || $port === $defaultPort ? $origin : $origin . ':' . $port;
     }
 
     /**

@@ -9,12 +9,12 @@ namespace DmLab\CustomerPasskey\Model\Registration;
 
 use Cose\Algorithms;
 use DmLab\CustomerPasskey\Model\Config;
+use DmLab\CustomerPasskey\Model\Webauthn\CeremonyFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialLoader;
 use DmLab\CustomerPasskey\Model\Webauthn\RelyingPartyEntityFactory;
 use Webauthn\AuthenticatorAttestationResponse;
 use Webauthn\AuthenticatorAttestationResponseValidator;
 use Webauthn\AuthenticatorSelectionCriteria;
-use Webauthn\CeremonyStep\CeremonyStepManagerFactory;
 use Webauthn\CredentialRecord;
 use Webauthn\Exception\AuthenticatorResponseVerificationException;
 use Webauthn\Exception\WebauthnException;
@@ -30,8 +30,8 @@ use Webauthn\PublicKeyCredentialUserEntity;
  * The original creation options are reconstructed from the consumed challenge plus
  * the logged-in customer (the relying party is Magento, so the customer is the
  * WebAuthn user). The library's creation ceremony then enforces challenge match,
- * origin/RP-ID binding, user presence/verification and a known attestation format;
- * any rejection of the client's response throws a {@see WebauthnException}, which
+ * exact store origin ({@see CeremonyFactory}), RP-ID binding, user
+ * presence/verification and a known attestation format; any rejection of the client's response throws a {@see WebauthnException}, which
  * the controller reports generically.
  *
  * The `none` attestation format only is accepted — this module requests no
@@ -49,11 +49,13 @@ class AttestationVerifier
      * @param RelyingPartyEntityFactory $relyingPartyEntityFactory
      * @param Config $config
      * @param CredentialLoader $credentialLoader
+     * @param CeremonyFactory $ceremonyFactory
      */
     public function __construct(
         private readonly RelyingPartyEntityFactory $relyingPartyEntityFactory,
         private readonly Config $config,
-        private readonly CredentialLoader $credentialLoader
+        private readonly CredentialLoader $credentialLoader,
+        private readonly CeremonyFactory $ceremonyFactory
     ) {
     }
 
@@ -101,22 +103,14 @@ class AttestationVerifier
         }
 
         try {
-            return $this->validator()->check($response, $options, (string)$rp->id);
+            return AuthenticatorAttestationResponseValidator::create(
+                $this->ceremonyFactory->creationCeremony($storeId)
+            )->check($response, $options, (string)$rp->id);
         } catch (WebauthnException $e) {
             throw $e;
         } catch (\Exception $e) {
             // Library decoders throw plain exceptions on malformed client data.
             throw AuthenticatorResponseVerificationException::create('The attestation could not be verified.', $e);
         }
-    }
-
-    /**
-     * Attestation-response validator running the standard creation ceremony.
-     */
-    private function validator(): AuthenticatorAttestationResponseValidator
-    {
-        return AuthenticatorAttestationResponseValidator::create(
-            (new CeremonyStepManagerFactory())->creationCeremony()
-        );
     }
 }

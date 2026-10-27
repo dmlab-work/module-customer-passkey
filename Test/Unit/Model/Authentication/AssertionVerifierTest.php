@@ -9,6 +9,7 @@ namespace DmLab\CustomerPasskey\Test\Unit\Model\Authentication;
 
 use DmLab\CustomerPasskey\Model\Authentication\AssertionVerifier;
 use DmLab\CustomerPasskey\Model\Config;
+use DmLab\CustomerPasskey\Model\Webauthn\CeremonyFactory;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialLoader;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
 use DmLab\CustomerPasskey\Model\Webauthn\RelyingPartyEntityFactory;
@@ -41,11 +42,18 @@ class AssertionVerifierTest extends TestCase
         $config = $this->createStub(Config::class);
         $config->method('getUserVerification')->willReturn('preferred');
         $config->method('getTimeout')->willReturn(60000);
+        $config->method('getAllowedOrigins')->willReturn(['https://' . self::RP_ID]);
         $rpFactory = $this->createStub(RelyingPartyEntityFactory::class);
         $rpFactory->method('create')->willReturn(PublicKeyCredentialRpEntity::create('Acme', self::RP_ID));
         $this->sources = $this->createStub(CredentialSourceRepository::class);
 
-        $this->verifier = new AssertionVerifier($config, $rpFactory, $this->sources, new CredentialLoader());
+        $this->verifier = new AssertionVerifier(
+            $config,
+            $rpFactory,
+            $this->sources,
+            new CredentialLoader(),
+            new CeremonyFactory($config)
+        );
     }
 
     public function testUnknownCredentialIsVerificationFailure(): void
@@ -89,6 +97,26 @@ class AssertionVerifierTest extends TestCase
         $this->verifier->verify(self::CHALLENGE, $this->payload("\x30\x06\x02\x01\x01\x02\x01\x01"));
     }
 
+    public function testSubdomainOriginIsRejected(): void
+    {
+        $this->sources->method('findOneByCredentialId')->willReturn($this->source());
+
+        $this->expectException(AuthenticatorResponseVerificationException::class);
+        $this->expectExceptionMessage('Subdomains are not allowed');
+
+        $this->verifier->verify(self::CHALLENGE, $this->payload('signature', 'https://evil.' . self::RP_ID));
+    }
+
+    public function testOriginOnAnotherPortIsRejected(): void
+    {
+        $this->sources->method('findOneByCredentialId')->willReturn($this->source());
+
+        $this->expectException(AuthenticatorResponseVerificationException::class);
+        $this->expectExceptionMessage('Not in the list of allowed origins');
+
+        $this->verifier->verify(self::CHALLENGE, $this->payload('signature', 'https://' . self::RP_ID . ':8443'));
+    }
+
     /**
      * Stored credential with a real P-256 public key owned by customer 42.
      */
@@ -119,14 +147,15 @@ class AssertionVerifierTest extends TestCase
      * Browser assertion JSON that passes every ceremony step up to the signature check.
      *
      * @param string $signature raw signature bytes
+     * @param string|null $origin clientDataJSON origin; the store origin by default
      * @return array<string,mixed>
      */
-    private function payload(string $signature): array
+    private function payload(string $signature, ?string $origin = null): array
     {
         $clientData = (string)json_encode([
             'type' => 'webauthn.get',
             'challenge' => $this->base64Url(self::CHALLENGE),
-            'origin' => 'https://' . self::RP_ID,
+            'origin' => $origin ?? 'https://' . self::RP_ID,
         ]);
 
         return [

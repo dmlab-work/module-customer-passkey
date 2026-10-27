@@ -56,8 +56,9 @@ Admin → Stores → Configuration → **DMLab → Customer Passkey**
 | Email Sender | General Contact | Store email identity. |
 | Passkey Added / Removed Template | module default | Override under Marketing → Email Templates. |
 
-The **RP ID** is derived from the base-URL host (e.g. `magento.loc`); the origin is validated
-against the store URL. Both must be stable HTTPS hosts.
+The **RP ID** is derived from the base-URL host (e.g. `magento.loc`). The ceremony origin must
+exactly match one of the current store view's base URLs (secure/unsecure, scheme + host + port);
+other subdomains are refused. Both must be stable HTTPS hosts.
 
 ## Usage
 
