@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.2] — 2026-10-27
+
+### Security
+- Passkey ceremonies only accept the store's exact base-URL origins; other subdomains and ports are refused.
+- `general/user_verification` defaults to `required`; only `required` is enforced server-side. Stores that never saved the field now require PIN/biometric — passkeys enrolled without user verification fail until one is set up.
+- Challenges expire server-side after the ceremony timeout + 60 s and are used up even by a malformed payload.
+- `clientDataJSON.type` is checked per ceremony, and a changed backup-eligibility flag rejects the assertion.
+- Deleting a passkey needs a recent sign-in or the current password, like adding one.
+- Rejected email-first passkey sign-ins count toward Magento's customer lockout.
+- New passkeys get an opaque WebAuthn user handle instead of the customer id; existing passkeys keep working.
+
+### Added
+- `general/rp_id`: bind passkeys to a parent domain of the store host (changing it invalidates existing passkeys).
+- EdDSA (Ed25519) passkeys and `packed` self-attestation; registration stores authenticator transports.
+- Backup eligibility/state and user-verification state are stored per passkey.
+
+### Fixed
+- A concurrent duplicate registration returns 409 instead of 500; labels are cut to 255 characters.
+
+### Changed
+- Requires `ext-sodium`. New nullable columns on `dmlab_passkey_credential` (`setup:upgrade`).
+
 ## [0.2.1] — 2026-10-25
 
 ### Fixed
