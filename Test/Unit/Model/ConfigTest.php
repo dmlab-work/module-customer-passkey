@@ -80,11 +80,21 @@ class ConfigTest extends TestCase
         self::assertSame(Config::USER_VERIFICATION_REQUIRED, $this->config->getUserVerification());
     }
 
-    public function testGetUserVerificationFallsBackToPreferred(): void
+    public function testGetUserVerificationFallsBackToRequired(): void
     {
         $this->scopeConfig->method('getValue')
             ->with(Config::XML_PATH_USER_VERIFICATION, ScopeInterface::SCOPE_STORE, null)
-            ->willReturn('nonsense');
+            ->willReturnOnConsecutiveCalls('nonsense', null);
+
+        self::assertSame(Config::USER_VERIFICATION_REQUIRED, $this->config->getUserVerification());
+        self::assertSame(Config::USER_VERIFICATION_REQUIRED, $this->config->getUserVerification());
+    }
+
+    public function testGetUserVerificationKeepsExplicitPreferred(): void
+    {
+        $this->scopeConfig->method('getValue')
+            ->with(Config::XML_PATH_USER_VERIFICATION, ScopeInterface::SCOPE_STORE, null)
+            ->willReturn(Config::USER_VERIFICATION_PREFERRED);
 
         self::assertSame(Config::USER_VERIFICATION_PREFERRED, $this->config->getUserVerification());
     }

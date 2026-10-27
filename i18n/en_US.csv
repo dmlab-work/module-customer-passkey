@@ -67,7 +67,7 @@ General,General
 "Relying Party Display Name","Relying Party Display Name"
 "Name the authenticator shows during a ceremony. Defaults to the store name.","Name the authenticator shows during a ceremony. Defaults to the store name."
 "User Verification","User Verification"
-"Whether the authenticator must verify the user (PIN/biometric) during a ceremony.","Whether the authenticator must verify the user (PIN/biometric) during a ceremony."
+"Whether the authenticator must verify the user (PIN/biometric). Only ""Required"" is enforced server-side; with a lower setting a passkey sign-in can succeed on device possession alone.","Whether the authenticator must verify the user (PIN/biometric). Only ""Required"" is enforced server-side; with a lower setting a passkey sign-in can succeed on device possession alone."
 "Authenticator Attachment","Authenticator Attachment"
 "Which class of authenticator to steer customers toward. ""Any"" applies no restriction.","Which class of authenticator to steer customers toward. ""Any"" applies no restriction."
 "Ceremony Timeout (ms)","Ceremony Timeout (ms)"

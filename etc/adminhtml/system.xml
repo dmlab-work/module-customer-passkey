@@ -37,7 +37,10 @@
                        showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>User Verification</label>
                     <source_model>DmLab\CustomerPasskey\Model\Config\Source\UserVerification</source_model>
-                    <comment>Whether the authenticator must verify the user (PIN/biometric) during a ceremony.</comment>
+                    <comment>
+                        Whether the authenticator must verify the user (PIN/biometric). Only "Required" is enforced
+                        server-side; with a lower setting a passkey sign-in can succeed on device possession alone.
+                    </comment>
                     <depends>
                         <field id="enabled">1</field>
                     </depends>

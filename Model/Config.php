@@ -55,10 +55,10 @@ class Config
     /** Email template sent when a passkey is removed. */
     public const XML_PATH_NOTIFICATION_REMOVED_TEMPLATE = 'dmlab_customer_passkey/notification/removed_template';
 
-    /** The user must prove presence + verification (PIN/biometric). */
+    /** The user must prove presence + verification (PIN/biometric); the default. */
     public const USER_VERIFICATION_REQUIRED = 'required';
 
-    /** Verification is requested but not enforced (safe default). */
+    /** Verification is requested but not enforced. */
     public const USER_VERIFICATION_PREFERRED = 'preferred';
 
     /** Verification is discouraged (presence only). */
@@ -133,8 +133,9 @@ class Config
     /**
      * Configured user-verification requirement.
      *
-     * Falls back to the safe {@see self::USER_VERIFICATION_PREFERRED} when unset
-     * or unrecognized.
+     * Falls back to {@see self::USER_VERIFICATION_REQUIRED} when unset or
+     * unrecognized: the library enforces the UV flag only for `required`, and a
+     * passkey replaces the password, so without UV it is possession alone.
      *
      * @param int|string|null $storeId
      */
@@ -146,7 +147,7 @@ class Config
             self::USER_VERIFICATION_REQUIRED,
             self::USER_VERIFICATION_PREFERRED,
             self::USER_VERIFICATION_DISCOURAGED,
-        ], true) ? $value : self::USER_VERIFICATION_PREFERRED;
+        ], true) ? $value : self::USER_VERIFICATION_REQUIRED;
     }
 
     /**

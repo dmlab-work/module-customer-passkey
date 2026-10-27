@@ -11,7 +11,7 @@
         <dmlab_customer_passkey>
             <general>
                 <enabled>0</enabled>
-                <user_verification>preferred</user_verification>
+                <user_verification>required</user_verification>
                 <authenticator_attachment>any</authenticator_attachment>
                 <timeout>60000</timeout>
                 <allow_passwordless>1</allow_passwordless>

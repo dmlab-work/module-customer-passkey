@@ -42,7 +42,7 @@ Admin → Stores → Configuration → **DMLab → Customer Passkey**
 |---|---|---|
 | Enable Passkey Login | No | Master switch; adds the button and enables all endpoints. |
 | Relying Party Display Name | store name | Name the authenticator shows during a ceremony. |
-| User Verification | preferred | `required` / `preferred` / `discouraged` — force PIN/biometric or not. |
+| User Verification | required | `required` / `preferred` / `discouraged`. Only `required` is enforced server-side; lower values let a passkey sign in on device possession alone (no PIN/biometric). |
 | Authenticator Attachment | any | `any` / `platform` (Touch ID, Windows Hello) / `cross-platform` (security keys). |
 | Ceremony Timeout (ms) | 60000 | Browser wait for the authenticator. |
 | Allow Passwordless Sign-In | Yes | Offers usernameless "Sign in with a passkey" via discoverable credentials. With No there is no storefront passkey sign-in (no button; `login/options` requires an email). |
