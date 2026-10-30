@@ -4,17 +4,11 @@
 
 [![CI](https://github.com/dmlab-work/module-customer-passkey/actions/workflows/ci.yml/badge.svg)](https://github.com/dmlab-work/module-customer-passkey/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/dmlab-work/module-customer-passkey/graph/badge.svg)](https://codecov.io/gh/dmlab-work/module-customer-passkey) [![Packagist Version](https://img.shields.io/packagist/v/dmlab/module-customer-passkey)](https://packagist.org/packages/dmlab/module-customer-passkey) [![Downloads](https://img.shields.io/packagist/dt/dmlab/module-customer-passkey)](https://packagist.org/packages/dmlab/module-customer-passkey) [![PHP](https://img.shields.io/packagist/dependency-v/dmlab/module-customer-passkey/php)](https://packagist.org/packages/dmlab/module-customer-passkey) [![License](https://img.shields.io/packagist/l/dmlab/module-customer-passkey)](LICENSE) ![Magento](https://img.shields.io/badge/Magento-2.4-orange)
 
-Passwordless, phishing-resistant customer login for the Magento 2 storefront using
-**passkeys (WebAuthn / FIDO2)**. Magento is the relying party (verifier) — there is no
-external IdP, no OIDC, and no shared SSO core. The module is standalone and coexists with
-`customer-sso` on the same login page and the same `customer_entity`.
+Customers sign in to your store with Touch ID, Face ID, Windows Hello or a security key instead of a password.
+There is no password to steal or phish, and nothing to remember or reset.
+Free and self-contained: Magento checks the passkey itself, no external service or account needed.
 
-## Requirements
-
-- Magento 2.4.x (tested on 2.4.9), PHP 8.3–8.5 with `ext-sodium` (EdDSA)
-- `web-auth/webauthn-lib ^5.3.5`, `web-auth/cose-lib ^4.8`, `symfony/serializer`, `symfony/uid` (`^6.4|^7.0|^8.0`)
-- Magento modules Customer, Store, Config, Backend, Ui, Email (bundled with Magento)
-- HTTPS on the storefront (WebAuthn requires a secure context)
+![Magento customer login page with a "Sign in with a passkey" button](.github/images/login-passkey-button.png)
 
 ## Install
 
@@ -25,11 +19,26 @@ bin/magento setup:upgrade
 bin/magento setup:di:compile        # production mode
 ```
 
-This creates the `dmlab_passkey_credential` table (one row per registered passkey,
-cascades with its customer).
+`setup:upgrade` creates the `dmlab_passkey_credential` table (one row per passkey, removed with its customer).
+Then switch it on in Stores → Configuration → **DMLab → Customer Passkey** (*Enable Passkey Login*).
 
-Upgrading from 0.1.x: passkeys registered as non-resident (passwordless was disabled) can no longer
-sign in — affected customers must re-enrol.
+## Requirements
+
+- Magento 2.4.7+ · PHP 8.2–8.5
+- `ext-sodium`
+- HTTPS on the storefront (browsers offer passkeys only on secure pages)
+
+## Hyvä
+
+A Hyvä (Alpine.js) login-button template ships with the module, but the theme layout must be edited by hand. In the Hyvä theme's `Magento_Customer/layout/customer_account_login.xml`:
+
+```xml
+<referenceBlock name="dmlab.customer.passkey.button" template="DmLab_CustomerPasskey::login/passkey-button-hyva.phtml"/>
+```
+
+My Account → Passkeys (adding, renaming and deleting passkeys) is Luma/RequireJS only; there is no Hyvä variant yet.
+
+Pairs with [Customer SSO](https://github.com/dmlab-work/module-customer-sso) (sign-in through your identity provider): each adds its own button to the login page, both resolve to the same customer account, neither depends on the other.
 
 ## Configuration
 
@@ -63,28 +72,39 @@ other subdomains are refused. Both must be stable HTTPS hosts.
 
 ## Usage
 
-**Add a passkey** — a logged-in customer opens My Account → **Passkeys**, clicks *Add a
-passkey*, and completes the browser prompt (Touch ID / Face ID / Windows Hello / security key).
-Outside the re-authentication window the page asks for the current password first; customers without
-a password (e.g. SSO-created) are told to sign in again. Wrong passwords count toward Magento's
-customer lockout; a locked account is refused. "Login as Customer" sessions always need the password. Every new passkey is a resident
-(discoverable) key. Credentials can be renamed and deleted from the same page; deleting re-authenticates
-like adding, and a customer can only manage their own.
+**Add a passkey** — a signed-in customer opens My Account → **Passkeys**, clicks *Add a passkey* and confirms
+the browser prompt. The same page renames and deletes passkeys; a customer manages only their own. Outside the
+re-authentication window adding or deleting asks for the current password first (wrong passwords count toward
+Magento's customer lockout; a locked account is refused). Customers without a password (e.g. created via SSO)
+are asked to sign in again; "Login as Customer" sessions always need the password.
 
-**Passwordless login** — on the storefront login page a *Sign in with a passkey* button runs
-`navigator.credentials.get()` with no email (discoverable/resident keys). A valid assertion resolves
-the credential to its customer and establishes the storefront session and refreshes private content
-(minicart, customer name). The button renders only when *Allow Passwordless Sign-In* is Yes. Login is
-discoverable-only: `allowCredentials` is always empty, so the response is identical for any email.
-An optional `email` parameter on `login/options` only scopes the challenge server-side — the
-assertion must then belong to that customer, and a rejected assertion counts toward that account's
-native lockout.
+**Sign in** — the *Sign in with a passkey* button on the login page needs no email: the browser offers the
+customer's passkeys for this store, and a valid one signs them in and refreshes the minicart and customer name.
+The button shows only when *Allow Passwordless Sign-In* is Yes.
 
 **Admin revoke** — Customers → All Customers → edit → **Passkeys** tab lists the customer's passkeys
 (label, created, last used, AAGUID) with a *Revoke* action for a lost device. Requires ACL
 `DmLab_CustomerPasskey::manage` (Customers → All Customers → Manage Customer Passkeys).
 
-## Endpoints
+## Browser / authenticator support
+
+Any WebAuthn-capable browser: Chrome, Safari, Firefox, Edge. Authenticators: platform (Touch ID,
+Face ID, Windows Hello, Android) and cross-platform (FIDO2 security keys). Passwordless requires
+discoverable-credential support (current browsers + platform authenticators).
+
+## Tests
+
+```bash
+vendor/bin/phpunit -c Test/Unit/phpunit.xml
+```
+
+Real-authenticator flows (Touch ID / security key) are verified manually.
+
+## Architecture
+
+Standalone: Magento is the WebAuthn relying party (`web-auth/webauthn-lib`); no `dmlab/*` dependency.
+
+### Endpoints
 
 Frontend router `customerpasskey`:
 
@@ -100,6 +120,11 @@ Outside the re-authentication window `register/options` and `manage/delete` retu
 Admin router `customerpasskey` (ACL `DmLab_CustomerPasskey::manage`): `customerpasskey/customer/revoke`
 — POST `customer_id`, `entity_id`, `form_key`; redirects back to the customer edit page.
 
+Every new passkey is a discoverable (resident) key. Login is discoverable-only: `allowCredentials` is always
+empty, so the response is identical for any email. An optional `email` parameter on `login/options` only scopes
+the challenge server-side — the assertion must then belong to that customer, and a rejected assertion counts
+toward that account's native lockout.
+
 Challenges are one-time, bound to their ceremony (a login challenge cannot complete a registration),
 stored in the customer session and expire after the ceremony timeout + 60 s; ceremony endpoints are
 rate-limited per client IP (Magento `RemoteAddress`).
@@ -108,35 +133,6 @@ enrolled earlier keep their customer-id handle. Algorithms: ES256, EdDSA, RS256;
 `none` (packed self-attestation accepted).
 The authenticator sign counter is persisted and checked on every assertion — a regression is
 flagged as a possible clone and denied.
-
-## Themes
-
-Ships a Luma template and a Hyvä-compatible variant
-(`view/frontend/templates/login/passkey-button-hyva.phtml`) that a Hyvä theme wires up by pointing
-its `customer_account_login` layout at the template. The button renders on `customer_account_login`
-only when the module is enabled and a usable ceremony is available, so it drops onto an existing
-login page without assuming it is the only method.
-
-## Coexistence
-
-Standalone: depends only on Magento core modules + `web-auth/webauthn-lib`. It does **not** use
-`sso-core` and does **not** depend on `customer-sso`. When both are installed each simply adds its
-own button to `customer_account_login`, and both resolve to the same `customer_entity` — no shared
-core, no cross-module dependency.
-
-## Browser / authenticator support
-
-Any WebAuthn-capable browser: Chrome, Safari, Firefox, Edge. Authenticators: platform (Touch ID,
-Face ID, Windows Hello, Android) and cross-platform (FIDO2 security keys). Passwordless requires
-discoverable-credential support (current browsers + platform authenticators).
-
-## Tests
-
-```bash
-vendor/bin/phpunit -c Test/Unit/phpunit.xml
-```
-
-Real-authenticator flows (Touch ID / security key) are verified manually.
 
 ## License
 

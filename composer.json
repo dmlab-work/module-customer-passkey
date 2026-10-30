@@ -1,19 +1,37 @@
 {
     "name": "dmlab/module-customer-passkey",
     "description": "Passwordless, phishing-resistant customer login for the Magento 2 storefront using passkeys (WebAuthn / FIDO2). Magento is the relying party — no external IdP. Standalone; coexists with customer-sso.",
+    "keywords": [
+        "magento2",
+        "magento2-module",
+        "magento 2",
+        "passkey",
+        "webauthn",
+        "fido2",
+        "passwordless",
+        "customer login",
+        "touch id",
+        "face id",
+        "security key"
+    ],
+    "homepage": "https://github.com/dmlab-work/module-customer-passkey",
+    "support": {
+        "issues": "https://github.com/dmlab-work/module-customer-passkey/issues",
+        "source": "https://github.com/dmlab-work/module-customer-passkey"
+    },
     "type": "magento2-module",
     "license": "OSL-3.0",
     "version": "0.2.2",
     "require": {
-        "php": "~8.3.0||~8.4.0||~8.5.0",
+        "php": "~8.2.0||~8.3.0||~8.4.0||~8.5.0",
         "ext-sodium": "*",
-        "magento/framework": ">=103.0",
-        "magento/module-backend": "^102.0",
-        "magento/module-config": "^101.2",
-        "magento/module-customer": "^103.0",
-        "magento/module-email": "^101.1",
-        "magento/module-store": "^101.1",
-        "magento/module-ui": "^101.2",
+        "magento/framework": "^103.0.7",
+        "magento/module-backend": "^102.0.7",
+        "magento/module-config": "^101.2.7",
+        "magento/module-customer": "^103.0.7",
+        "magento/module-email": "^101.1.7",
+        "magento/module-store": "^101.1.7",
+        "magento/module-ui": "^101.2.7",
         "psr/log": "^1.0|^2.0|^3.0",
         "symfony/serializer": "^6.4|^7.0|^8.0",
         "symfony/uid": "^6.4|^7.0|^8.0",
@@ -21,7 +39,7 @@
         "web-auth/webauthn-lib": "^5.3.5"
     },
     "require-dev": {
-        "phpunit/phpunit": "^12.0"
+        "phpunit/phpunit": "^11.5||^12.5"
     },
     "autoload": {
         "files": [

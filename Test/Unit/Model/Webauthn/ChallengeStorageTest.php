@@ -9,19 +9,12 @@ namespace DmLab\CustomerPasskey\Test\Unit\Model\Webauthn;
 
 use DmLab\CustomerPasskey\Model\Config;
 use DmLab\CustomerPasskey\Model\Webauthn\ChallengeStorage;
-use Magento\Customer\Model\Session;
+use DmLab\CustomerPasskey\Test\Unit\Helper\InMemorySession;
 use Magento\Framework\Stdlib\DateTime\DateTime;
-use Magento\Framework\TestFramework\Unit\Helper\MockCreationTrait;
-use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 
-// The customer Session is mocked only to back the store with an in-memory slot;
-// its setData/getData/unsetData are magic methods a stub cannot express.
-#[AllowMockObjectsWithoutExpectations]
 class ChallengeStorageTest extends TestCase
 {
-    use MockCreationTrait;
-
     /** @var array<string,mixed> */
     private array $store = [];
 
@@ -35,17 +28,7 @@ class ChallengeStorageTest extends TestCase
     {
         $this->store = [];
 
-        $session = $this->createPartialMockWithReflection(Session::class, ['getData', 'setData', 'unsetData']);
-        $session->expects($this->any())->method('getData')
-            ->willReturnCallback(fn($key) => $this->store[$key] ?? null);
-        $session->expects($this->any())->method('setData')
-            ->willReturnCallback(function ($key, $value): void {
-                $this->store[$key] = $value;
-            });
-        $session->expects($this->any())->method('unsetData')
-            ->willReturnCallback(function ($key): void {
-                unset($this->store[$key]);
-            });
+        $session = new InMemorySession($this->store);
 
         $config = $this->createStub(Config::class);
         $config->method('getTimeout')->willReturn(60000);

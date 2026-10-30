@@ -16,6 +16,7 @@ use Magento\Framework\App\ObjectManager as AppObjectManager;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Json\Helper\Data as JsonHelper;
+use Magento\Framework\ObjectManagerInterface;
 use Magento\Framework\TestFramework\Unit\Helper\ObjectManager;
 use Magento\Framework\UrlInterface;
 use Magento\Ui\Component\Layout\Tabs\TabInterface;
@@ -55,13 +56,14 @@ class PasskeysTest extends TestCase
         $credentials = $this->createStub(CredentialRepository::class);
         $credentials->method('listByCustomer')->willReturnMap([[(int)$customerId, $passkeys]]);
 
-        $objectManager = new ObjectManager($this);
-        $objectManager->prepareObjectManager([
+        $appObjectManager = $this->createStub(ObjectManagerInterface::class);
+        $appObjectManager->method('get')->willReturnMap([
             [JsonHelper::class, $this->createStub(JsonHelper::class)],
             [DirectoryHelper::class, $this->createStub(DirectoryHelper::class)],
         ]);
+        AppObjectManager::setInstance($appObjectManager);
 
-        return $objectManager->getObject(Passkeys::class, [
+        return (new ObjectManager($this))->getObject(Passkeys::class, [
             'context' => $context,
             'credentials' => $credentials,
         ]);

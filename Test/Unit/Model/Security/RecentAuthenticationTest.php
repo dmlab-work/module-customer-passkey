@@ -9,26 +9,21 @@ namespace DmLab\CustomerPasskey\Test\Unit\Model\Security;
 
 use DmLab\CustomerPasskey\Model\Config;
 use DmLab\CustomerPasskey\Model\Security\RecentAuthentication;
+use DmLab\CustomerPasskey\Test\Unit\Helper\InMemorySession;
 use Magento\Customer\Model\AuthenticationInterface;
-use Magento\Customer\Model\Session;
 use Magento\Framework\Exception\InvalidEmailOrPasswordException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Exception\State\UserLockedException;
 use Magento\Framework\Phrase;
 use Magento\Framework\Stdlib\DateTime\DateTime;
-use Magento\Framework\TestFramework\Unit\Helper\MockCreationTrait;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
-// The customer Session is mocked only to back the store with an in-memory slot;
-// its setData/getData are magic methods a stub cannot express.
 #[AllowMockObjectsWithoutExpectations]
 class RecentAuthenticationTest extends TestCase
 {
-    use MockCreationTrait;
-
     private const NOW = 1_800_000_000;
 
     /** @var array<string,mixed> */
@@ -47,13 +42,7 @@ class RecentAuthenticationTest extends TestCase
     {
         $this->store = [];
 
-        $session = $this->createPartialMockWithReflection(Session::class, ['getData', 'setData']);
-        $session->expects($this->any())->method('getData')
-            ->willReturnCallback(fn($key) => $this->store[$key] ?? null);
-        $session->expects($this->any())->method('setData')
-            ->willReturnCallback(function ($key, $value): void {
-                $this->store[$key] = $value;
-            });
+        $session = new InMemorySession($this->store);
 
         $config = $this->createStub(Config::class);
         $config->method('getReauthWindow')->willReturn(300);

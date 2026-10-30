@@ -14,6 +14,7 @@ use DmLab\CustomerPasskey\Model\Registration\AttestationVerifier;
 use DmLab\CustomerPasskey\Model\Security\RateLimiter;
 use DmLab\CustomerPasskey\Model\Webauthn\ChallengeStorage;
 use DmLab\CustomerPasskey\Model\Webauthn\CredentialSourceRepository;
+use DmLab\CustomerPasskey\Test\Unit\Helper\InMemorySession;
 use Magento\Customer\Api\Data\CustomerInterface;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\RequestInterface;
@@ -21,7 +22,6 @@ use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Controller\Result\JsonFactory;
 use Magento\Framework\DB\Adapter\DuplicateException;
 use Magento\Framework\Stdlib\DateTime\DateTime;
-use Magento\Framework\TestFramework\Unit\Helper\MockCreationTrait;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -35,8 +35,6 @@ use Webauthn\TrustPath\EmptyTrustPath;
 #[AllowMockObjectsWithoutExpectations]
 class VerifyTest extends TestCase
 {
-    use MockCreationTrait;
-
     private const NIL_AAGUID = '00000000-0000-0000-0000-000000000000';
 
     /** @var Config&MockObject */
@@ -446,16 +444,7 @@ class VerifyTest extends TestCase
     private function sessionBackedChallengeStorage(): ChallengeStorage
     {
         $slot = [];
-        $session = $this->createPartialMockWithReflection(Session::class, ['getData', 'setData', 'unsetData']);
-        $session->method('getData')->willReturnCallback(static function ($key) use (&$slot) {
-            return $slot[$key] ?? null;
-        });
-        $session->method('setData')->willReturnCallback(static function ($key, $value) use (&$slot): void {
-            $slot[$key] = $value;
-        });
-        $session->method('unsetData')->willReturnCallback(static function ($key) use (&$slot): void {
-            unset($slot[$key]);
-        });
+        $session = new InMemorySession($slot);
 
         $config = $this->createStub(Config::class);
         $config->method('getTimeout')->willReturn(60000);
