@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3] — 2026-10-30
+
+### Changed
+- Installs on Magento 2.4.7+ and PHP 8.2–8.5.
+- CI tests PHP 8.2–8.5 and no longer reports its dependency installs to Packagist.
+- composer.json: keywords, homepage and support links.
+- README rewritten for merchants: screenshot, install, requirements, Hyvä status.
+
 ## [0.2.2] — 2026-10-27
 
 ### Security
