@@ -1,0 +1,102 @@
+<?php
+/**
+ * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
+ *
+ * WebAuthn helpers shared by the Hyvä passkey components (fetch + navigator.credentials, no RequireJS).
+ *
+ * @var \Magento\Framework\View\Element\Template $block
+ * @var \Hyva\Theme\ViewModel\HyvaCsp $hyvaCsp
+ */
+?>
+<script>
+    window.dmlabPasskeyWebauthn = window.dmlabPasskeyWebauthn || (() => {
+        'use strict';
+        const decode = (value) => {
+            const pad = value.length % 4;
+            const base64 = value.replace(/-/g, '+').replace(/_/g, '/') + (pad ? '='.repeat(4 - pad) : '');
+            const binary = window.atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes.buffer;
+        };
+        const encode = (buffer) => {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        };
+        const descriptors = (list) => (list || []).map((descriptor) => ({
+            type: descriptor.type,
+            id: decode(descriptor.id),
+            transports: descriptor.transports
+        }));
+        // The login page is full-page cached: its rendered form key belongs to whoever warmed the cache.
+        const currentFormKey = (fallback) => (window.hyva && typeof window.hyva.getFormKey === 'function')
+            ? window.hyva.getFormKey()
+            : fallback;
+        const post = async (url, formKey, body) => {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: new URLSearchParams(Object.assign({form_key: currentFormKey(formKey)}, body || {})).toString()
+            });
+            const data = await response.json().catch(() => null);
+            return {ok: response.ok, status: response.status, data};
+        };
+        const requestOptions = (options) => ({
+            challenge: decode(options.challenge),
+            rpId: options.rpId,
+            userVerification: options.userVerification,
+            timeout: options.timeout,
+            allowCredentials: descriptors(options.allowCredentials)
+        });
+        const creationOptions = (options) => ({
+            challenge: decode(options.challenge),
+            rp: options.rp,
+            user: {
+                id: decode(options.user.id),
+                name: options.user.name,
+                displayName: options.user.displayName
+            },
+            pubKeyCredParams: options.pubKeyCredParams,
+            timeout: options.timeout,
+            authenticatorSelection: options.authenticatorSelection,
+            attestation: options.attestation,
+            excludeCredentials: descriptors(options.excludeCredentials)
+        });
+        const assertionPayload = (assertion) => ({
+            id: assertion.id,
+            rawId: encode(assertion.rawId),
+            type: assertion.type,
+            response: {
+                clientDataJSON: encode(assertion.response.clientDataJSON),
+                authenticatorData: encode(assertion.response.authenticatorData),
+                signature: encode(assertion.response.signature),
+                userHandle: assertion.response.userHandle ? encode(assertion.response.userHandle) : null
+            }
+        });
+        const attestationPayload = (credential) => ({
+            id: credential.id,
+            rawId: encode(credential.rawId),
+            type: credential.type,
+            response: {
+                clientDataJSON: encode(credential.response.clientDataJSON),
+                attestationObject: encode(credential.response.attestationObject),
+                transports: typeof credential.response.getTransports === 'function'
+                    ? credential.response.getTransports()
+                    : []
+            }
+        });
+        return {decode, encode, post, requestOptions, creationOptions, assertionPayload, attestationPayload};
+    })();
+</script>
+<?php if (isset($hyvaCsp)) { $hyvaCsp->registerInlineScript(); } ?>

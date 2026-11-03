@@ -111,6 +111,7 @@ class ChallengeStorage
         $scope = $decoded['s'] ?? null;
 
         return [
+            // phpcs:ignore Magento2.Functions.DiscouragedFunction -- strict decode of binary challenge bytes
             'challenge' => (string)base64_decode($decoded['c'], true),
             'scope' => $scope === null ? null : (int)$scope,
         ];

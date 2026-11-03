@@ -211,6 +211,7 @@ class CredentialSourceRepository
      */
     private function decodeBase64Url(string $value): string
     {
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction -- strict decode of binary credential bytes
         return (string)base64_decode(strtr($value, '-_', '+/'), true);
     }
 
@@ -231,6 +232,7 @@ class CredentialSourceRepository
      */
     private function decodeBase64(string $value): string
     {
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction -- strict decode of binary credential bytes
         return (string)base64_decode($value, true);
     }
 }

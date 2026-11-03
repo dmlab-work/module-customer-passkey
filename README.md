@@ -30,13 +30,16 @@ Then switch it on in Stores → Configuration → **DMLab → Customer Passkey**
 
 ## Hyvä
 
-A Hyvä (Alpine.js) login-button template ships with the module, but the theme layout must be edited by hand. In the Hyvä theme's `Magento_Customer/layout/customer_account_login.xml`:
+Works out of the box on Hyvä themes, including Hyvä CSP: the login button and My Account → Passkeys switch to Alpine.js templates automatically, no layout edits.
 
-```xml
-<referenceBlock name="dmlab.customer.passkey.button" template="DmLab_CustomerPasskey::login/passkey-button-hyva.phtml"/>
-```
+To restyle, override the template in the theme under `DmLab_CustomerPasskey/templates/…`:
 
-My Account → Passkeys (adding, renaming and deleting passkeys) is Luma/RequireJS only; there is no Hyvä variant yet.
+| Block | Template |
+|---|---|
+| `dmlab.customer.passkey.button` | `DmLab_CustomerPasskey::login/passkey-button-hyva.phtml` |
+| `dmlab.customer.passkey.list` | `DmLab_CustomerPasskey::manage/list-hyva.phtml` |
+
+An override must keep `getChildHtml('webauthn')`, the `x-data` component name, the `data-*` attributes and the `registerInlineScript()` call.
 
 Pairs with [Customer SSO](https://github.com/dmlab-work/module-customer-sso) (sign-in through your identity provider): each adds its own button to the login page, both resolve to the same customer account, neither depends on the other.
 

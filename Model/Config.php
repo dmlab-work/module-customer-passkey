@@ -278,6 +278,7 @@ class Config
     public function getRpId($storeId = null): string
     {
         $baseUrl = $this->storeManager->getStore($storeId)->getBaseUrl();
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction -- parses a trusted store base URL
         $host = parse_url($baseUrl, PHP_URL_HOST);
         if (!is_string($host)) {
             return '';
@@ -321,6 +322,7 @@ class Config
      */
     private function toOrigin(string $url): ?string
     {
+        // phpcs:ignore Magento2.Functions.DiscouragedFunction -- parses a trusted store base URL
         $parts = parse_url($url);
         if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
             return null;

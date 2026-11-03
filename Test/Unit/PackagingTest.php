@@ -69,7 +69,7 @@ class PackagingTest extends TestCase
         $version = $this->composer()['version'] ?? null;
         $changelog = (string)file_get_contents($this->moduleRoot() . '/CHANGELOG.md');
 
-        self::assertSame('0.2.3', $version);
+        self::assertSame('0.3.0', $version);
         self::assertMatchesRegularExpression(
             '/^## \\[' . preg_quote($version, '/') . '\\] — \\d{4}-\\d{2}-\\d{2}$/m',
             $changelog
@@ -99,16 +99,21 @@ class PackagingTest extends TestCase
 
         self::assertStringContainsString("## Requirements\n\n- Magento 2.4.7+ · PHP 8.2–8.5\n", $readme);
         self::assertMatchesRegularExpression('/^## Hyvä$/m', $readme);
-        self::assertStringContainsString(
-            '<referenceBlock name="dmlab.customer.passkey.button"'
-            . ' template="DmLab_CustomerPasskey::login/passkey-button-hyva.phtml"/>',
-            $readme
-        );
-        self::assertFileExists($this->moduleRoot() . '/view/frontend/templates/login/passkey-button-hyva.phtml');
-        self::assertStringContainsString(
-            'name="dmlab.customer.passkey.button"',
-            (string)file_get_contents($this->moduleRoot() . '/view/frontend/layout/customer_account_login.xml')
-        );
+        self::assertStringContainsString('Works out of the box on Hyvä themes, including Hyvä CSP', $readme);
+        self::assertStringContainsString('`dmlab.customer.passkey.button`', $readme);
+        self::assertStringContainsString('`dmlab.customer.passkey.list`', $readme);
+        self::assertStringNotContainsString('<referenceBlock', $readme);
+        self::assertStringNotContainsString('Luma/RequireJS only', $readme);
+    }
+
+    public function testHyvaTemplatesAndLayoutsExist(): void
+    {
+        $view = $this->moduleRoot() . '/view/frontend';
+
+        self::assertFileExists($view . '/templates/login/passkey-button-hyva.phtml');
+        self::assertFileExists($view . '/templates/manage/list-hyva.phtml');
+        self::assertFileExists($view . '/layout/hyva_customer_account_login.xml');
+        self::assertFileExists($view . '/layout/hyva_customerpasskey_manage_index.xml');
     }
 
     public function testReadmeScreenshotExists(): void

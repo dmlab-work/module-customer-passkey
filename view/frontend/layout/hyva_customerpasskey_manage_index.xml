@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
+ */
+-->
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceBlock name="dmlab.customer.passkey.list"
+                        template="DmLab_CustomerPasskey::manage/list-hyva.phtml">
+            <block class="Magento\Framework\View\Element\Template"
+                   name="dmlab.customer.passkey.manage.webauthn.hyva"
+                   as="webauthn"
+                   template="DmLab_CustomerPasskey::hyva/webauthn.phtml"/>
+        </referenceBlock>
+    </body>
+</page>

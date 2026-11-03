@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0] — 2026-11-02
+
+### Added
+- Hyvä: the login button and My Account → Passkeys render automatically on Hyvä themes (no layout edit), CSP-compatible (Hyvä CSP).
+
+### Changed
+- Hyvä theme overrides of `login/passkey-button-hyva.phtml` copied from 0.2.x must be re-copied from the new template.
+
 ## [0.2.3] — 2026-10-30
 
 ### Changed

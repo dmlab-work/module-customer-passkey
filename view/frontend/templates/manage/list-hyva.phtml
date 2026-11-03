@@ -1,0 +1,217 @@
+<?php
+/**
+ * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
+ *
+ * Hyvä variant of My Account → Passkeys (Alpine CSP build compatible; Luma: list.phtml).
+ *
+ * @var \DmLab\CustomerPasskey\Block\Manage\ListPasskeys $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \Hyva\Theme\ViewModel\HyvaCsp $hyvaCsp
+ */
+?>
+<div class="card dmlab-customer-passkey-manage"
+     x-data="dmlabCustomerPasskeyManage"
+     data-config="<?= $escaper->escapeHtmlAttr($block->getJsonConfig()) ?>"
+     data-msg-unsupported="<?= $escaper->escapeHtmlAttr(__('Passkeys are not supported on this browser.')) ?>"
+     data-msg-failure="<?= $escaper->escapeHtmlAttr(__('Something went wrong. Please try again.')) ?>"
+     data-msg-rename="<?= $escaper->escapeHtmlAttr(__('New passkey name')) ?>"
+     data-msg-delete="<?= $escaper->escapeHtmlAttr(__('Remove this passkey?')) ?>">
+    <h2 class="mb-4 font-semibold"><?= $escaper->escapeHtml(__('Passkeys')) ?></h2>
+    <div class="dmlab-customer-passkey-message mb-4" role="alert" x-show="message" x-text="message"></div>
+    <?php if ($block->hasPasskeys()): ?>
+        <table class="table-auto w-full mb-4">
+            <thead>
+                <tr>
+                    <th scope="col" class="text-left"><?= $escaper->escapeHtml(__('Name')) ?></th>
+                    <th scope="col" class="text-left"><?= $escaper->escapeHtml(__('Added')) ?></th>
+                    <th scope="col" class="text-left"><?= $escaper->escapeHtml(__('Last used')) ?></th>
+                    <th scope="col" class="text-left"><?= $escaper->escapeHtml(__('Actions')) ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($block->getPasskeys() as $passkey): ?>
+                    <?php $label = $block->getLabel($passkey); ?>
+                    <tr>
+                        <td><?= $escaper->escapeHtml($label) ?></td>
+                        <td><?= $escaper->escapeHtml($block->renderDate($passkey->createdAt)) ?></td>
+                        <td><?= $escaper->escapeHtml($block->renderDate($passkey->lastUsedAt)) ?></td>
+                        <td>
+                            <div class="flex gap-2">
+                                <button type="button"
+                                        class="btn dmlab-customer-passkey-rename"
+                                        data-entity-id="<?= (int) $passkey->entityId ?>"
+                                        data-label="<?= $escaper->escapeHtmlAttr($label) ?>"
+                                        :disabled="busy"
+                                        @click="rename">
+                                    <?= $escaper->escapeHtml(__('Rename')) ?>
+                                </button>
+                                <button type="button"
+                                        class="btn dmlab-customer-passkey-delete"
+                                        data-entity-id="<?= (int) $passkey->entityId ?>"
+                                        :disabled="busy"
+                                        @click="remove">
+                                    <?= $escaper->escapeHtml(__('Delete')) ?>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php else: ?>
+        <p class="mb-4 dmlab-customer-passkey-empty"><?= $escaper->escapeHtml(__('You have no passkeys yet.')) ?></p>
+    <?php endif; ?>
+
+    <div class="mb-4 dmlab-customer-passkey-reauth" x-cloak x-show="reauth">
+        <label class="block" for="dmlab-customer-passkey-password">
+            <?= $escaper->escapeHtml(__('Current Password')) ?>
+        </label>
+        <input type="password"
+               id="dmlab-customer-passkey-password"
+               class="form-input w-full mt-2"
+               autocomplete="current-password"
+               x-ref="password"/>
+    </div>
+    <?php if ($block->isEnabled()): ?>
+        <button type="button"
+                class="btn btn-primary dmlab-customer-passkey-add"
+                :disabled="busy"
+                @click="add">
+            <?= $escaper->escapeHtml(__('Add a passkey')) ?>
+        </button>
+    <?php endif; ?>
+</div>
+<?= $block->getChildHtml('webauthn') ?>
+<script>
+    function dmlabCustomerPasskeyManage() {
+        'use strict';
+        return {
+            busy: false,
+            message: '',
+            reauth: false,
+            config: {},
+            texts: {},
+            init() {
+                const data = this.$el.dataset;
+                this.config = JSON.parse(data.config || '{}');
+                this.texts = {
+                    unsupported: data.msgUnsupported,
+                    failure: data.msgFailure,
+                    rename: data.msgRename,
+                    remove: data.msgDelete
+                };
+            },
+            takePassword(body) {
+                const field = this.$refs.password;
+                if (field && field.value) {
+                    body.password = field.value;
+                }
+                if (field) {
+                    field.value = '';
+                }
+                return body;
+            },
+            askPassword(data) {
+                this.reauth = true;
+                this.message = data.message || this.texts.failure;
+                this.$nextTick(() => this.$refs.password && this.$refs.password.focus());
+            },
+            needsReauth(result) {
+                return result.status === 401 && result.data && result.data.reauth;
+            },
+            finish(result) {
+                if (result.ok && result.data && result.data.success) {
+                    window.location.reload();
+                    return;
+                }
+                this.busy = false;
+                this.message = (result.data && result.data.message) || this.texts.failure;
+            },
+            async add() {
+                if (this.busy) {
+                    return;
+                }
+                if (!window.PublicKeyCredential) {
+                    this.message = this.texts.unsupported;
+                    return;
+                }
+                const webauthn = window.dmlabPasskeyWebauthn;
+                const body = this.takePassword({});
+                this.busy = true;
+                this.message = '';
+                try {
+                    const options = await webauthn.post(this.config.optionsUrl, this.config.formKey, body);
+                    if (this.needsReauth(options)) {
+                        this.busy = false;
+                        this.askPassword(options.data);
+                        return;
+                    }
+                    if (!options.ok || !options.data) {
+                        this.finish(options);
+                        return;
+                    }
+                    this.reauth = false;
+                    const credential = await navigator.credentials.create({
+                        publicKey: webauthn.creationOptions(options.data)
+                    });
+                    this.finish(await webauthn.post(this.config.verifyUrl, this.config.formKey, {
+                        publicKeyCredential: JSON.stringify(webauthn.attestationPayload(credential))
+                    }));
+                } catch (e) {
+                    this.finish({});
+                }
+            },
+            async rename(event) {
+                const button = event.currentTarget;
+                if (this.busy) {
+                    return;
+                }
+                const label = window.prompt(this.texts.rename, button.dataset.label || '');
+                if (label === null) {
+                    return;
+                }
+                this.busy = true;
+                this.message = '';
+                try {
+                    this.finish(await window.dmlabPasskeyWebauthn.post(this.config.renameUrl, this.config.formKey, {
+                        entity_id: button.dataset.entityId,
+                        label: label
+                    }));
+                } catch (e) {
+                    this.finish({});
+                }
+            },
+            async remove(event) {
+                const button = event.currentTarget;
+                if (this.busy || !window.confirm(this.texts.remove)) {
+                    return;
+                }
+                const body = this.takePassword({entity_id: button.dataset.entityId});
+                this.busy = true;
+                this.message = '';
+                try {
+                    const result = await window.dmlabPasskeyWebauthn.post(
+                        this.config.deleteUrl,
+                        this.config.formKey,
+                        body
+                    );
+                    if (this.needsReauth(result)) {
+                        this.busy = false;
+                        this.askPassword(result.data);
+                        return;
+                    }
+                    this.finish(result);
+                } catch (e) {
+                    this.finish({});
+                }
+            }
+        };
+    }
+    window.addEventListener(
+        'alpine:init',
+        () => Alpine.data('dmlabCustomerPasskeyManage', dmlabCustomerPasskeyManage),
+        {once: true}
+    );
+</script>
+<?php if (isset($hyvaCsp)) { $hyvaCsp->registerInlineScript(); } ?>
